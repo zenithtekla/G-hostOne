@@ -1,0 +1,474 @@
+Index: bnet.cpp
+===================================================================
+--- bnet.cpp	(revision 84)
++++ bnet.cpp	(working copy)
+@@ -815,9 +815,9 @@
+ 	{
+ 		// the socket has an error
+ 
+-		uint32_t timetowait = 90;
++		uint32_t timetowait = 270;
+ 		if (m_PasswordHashType == "pvpgn")
+-			timetowait = 30;
++			timetowait = 45;
+ 
+ 		CONSOLE_Print( "[BNET: " + m_ServerAlias + "] disconnected from battle.net due to socket error" );
+ 
+@@ -825,7 +825,6 @@
+ 			CONSOLE_Print( "[BNET: " + m_ServerAlias + "] warning - you are probably temporarily IP banned from battle.net" );
+ 
+ 		CONSOLE_Print( "[BNET: " + m_ServerAlias + "] waiting "+UTIL_ToString(timetowait)+" seconds to reconnect" );
+-		m_GHost->EventBNETDisconnected( this );
+ 		delete m_BNLSClient;
+ 		m_BNLSClient = NULL;
+ 		m_BNCSUtil->Reset( m_UserName, m_UserPassword );
+@@ -841,13 +840,12 @@
+ 	{
+ 		// the socket was disconnected
+ 
+-		uint32_t timetowait = 90;
++		uint32_t timetowait = 270;
+ 		if (m_PasswordHashType == "pvpgn")
+-			timetowait = 30;
++			timetowait = 45;
+ 
+ 		CONSOLE_Print( "[BNET: " + m_ServerAlias + "] disconnected from battle.net" );
+ 		CONSOLE_Print( "[BNET: " + m_ServerAlias + "] waiting "+UTIL_ToString(timetowait)+" seconds to reconnect" );
+-		m_GHost->EventBNETDisconnected( this );
+ 		delete m_BNLSClient;
+ 		m_BNLSClient = NULL;
+ 		m_BNCSUtil->Reset( m_UserName, m_UserPassword );
+@@ -944,9 +942,9 @@
+ 		return m_Exiting;
+ 	}
+ 
+-	uint32_t timetowait = 90;
++	uint32_t timetowait = 270;
+ 	if (m_PasswordHashType == "pvpgn")
+-		timetowait = 30;
++		timetowait = 45;
+ 
+ 	if( m_Socket->GetConnecting( ) )
+ 	{
+@@ -976,7 +974,6 @@
+ 
+ 			CONSOLE_Print( "[BNET: " + m_ServerAlias + "] connect timed out" );
+ 			CONSOLE_Print( "[BNET: " + m_ServerAlias + "] waiting "+UTIL_ToString(timetowait)+" seconds to reconnect" );
+-			m_GHost->EventBNETConnectTimedOut( this );
+ 			m_Socket->Reset( );
+ 			m_LastDisconnectedTime = GetTime( );
+ 			m_WaitingToConnect = true;
+@@ -990,7 +987,6 @@
+ 
+ 		m_FirstConnect = false;
+ 		CONSOLE_Print( "[BNET: " + m_ServerAlias + "] connecting to server [" + m_Server + "] on port 6112" );
+-		m_GHost->EventBNETConnecting( this );
+ 
+ 		if( !m_GHost->m_BindAddress.empty( ) )
+ 			CONSOLE_Print( "[BNET: " + m_ServerAlias + "] attempting to bind to address [" + m_GHost->m_BindAddress + "]" );
+@@ -3783,9 +3779,10 @@
+ 						return;
+ 					}
+ 
+-					string GameName = Payload;
+-					if (GameName.empty())
+-						GameName = m_GHost->m_LastGameName;					
++					string GameName;
++					if (m_GHost->m_AppleIcon && Payload.size( ) < 24)
++						GameName = (Payload.empty()) ? (" " + m_GHost->m_LastGameName) : (" " + Payload);
++					else GameName = (Payload.empty()) ? m_GHost->m_LastGameName : Payload;				
+ 					string GameNr = string();
+ 					uint32_t idx = 0;
+ 					uint32_t Nr = 0;
+@@ -3887,9 +3884,10 @@
+ 						return;
+ 					}
+ 
+-					string GameName = Payload;
+-					if (GameName.empty())
+-						GameName = m_GHost->m_LastGameName;					
++					string GameName;
++					if (m_GHost->m_AppleIcon && Payload.size( ) < 24)
++						GameName = (Payload.empty()) ? (" " + m_GHost->m_LastGameName) : (" " + Payload);
++					else GameName = (Payload.empty()) ? m_GHost->m_LastGameName : Payload;
+ 					string GameNr = string();
+ 					uint32_t idx = 0;
+ 					uint32_t Nr = 0;
+@@ -3992,9 +3990,10 @@
+ 						return;
+ 					}
+ 
+-					string GameName = Payload;
+-					if (GameName.empty())
+-						GameName = m_GHost->m_LastGameName;					
++					string GameName;
++					if (m_GHost->m_AppleIcon && Payload.size( ) < 24)
++						GameName = (Payload.empty()) ? (" " + m_GHost->m_LastGameName) : (" " + Payload);
++					else GameName = (Payload.empty()) ? m_GHost->m_LastGameName : Payload;		
+ 					string GameNr = string();
+ 					uint32_t idx = 0;
+ 					uint32_t Nr = 0;
+@@ -4072,9 +4071,10 @@
+ 						return;
+ 					}
+ 
+-					string GameName = Payload;
+-					if (GameName.empty())
+-						GameName = m_GHost->m_LastGameName;					
++					string GameName;
++					if (m_GHost->m_AppleIcon && Payload.size( ) < 24)
++						GameName = (Payload.empty()) ? (" " + m_GHost->m_LastGameName) : (" " + Payload);
++					else GameName = (Payload.empty()) ? m_GHost->m_LastGameName : Payload;				
+ 					string GameNr = string();
+ 					uint32_t idx = 0;
+ 					uint32_t Nr = 0;
+@@ -4155,7 +4155,9 @@
+ 					if( GameNameStart != string :: npos )
+ 					{
+ 						Owner = Payload.substr( 0, GameNameStart );
+-						GameName = Payload.substr( GameNameStart + 1 );
++						if (m_GHost->m_AppleIcon && Payload.size( ) < 24)
++							GameName = " " + Payload.substr( GameNameStart + 1 );
++						else GameName = Payload.substr( GameNameStart + 1 );
+ 						if (GameName.length()<1 || GameName == " ")
+ 							return;
+ 						m_GHost->CreateGame( m_GHost->m_Map, GAME_PUBLIC, false, GameName, Owner, User, m_Server, Whisper );
+@@ -5479,8 +5481,10 @@
+ 								QueueChatCommand( m_GHost->m_Language->CantUnhostGameOwnerIsPresent( m_GHost->m_CurrentGame->GetOwnerName( ) ), User, Whisper );
+ 							else
+ 							{
+-								QueueChatCommand( m_GHost->m_Language->UnhostingGame( m_GHost->m_CurrentGame->GetDescription( ) ), User, Whisper );
+-								m_GHost->m_CurrentGame->SetExiting( true );
++								if( m_GHost->m_EnableUnhost || m_GHost->IsAdminWithUnhost(User) ){
++									QueueChatCommand( m_GHost->m_Language->UnhostingGame( m_GHost->m_CurrentGame->GetDescription( ) ), User, Whisper );
++									m_GHost->m_CurrentGame->SetExiting( true );
++								}
+ 							}
+ 						}
+ 					}
+Index: game.cpp
+===================================================================
+--- game.cpp	(revision 60)
++++ game.cpp	(working copy)
+@@ -5256,7 +5256,8 @@
+ 				}	*/
+ 				
+ 				if( Command == "unhost" && !m_CountDownStarted )
+-					m_Exiting = true;
++					if( m_GHost->m_EnableUnhost || m_GHost->IsAdminWithUnhost(User) )
++						m_Exiting = true;
+ 
+ 				//
+ 				// !UNLOCK
+@@ -6150,21 +6151,37 @@
+ 			if( RootAdminCheck || IsOwner( User ) || (!GetPlayerFromName( m_OwnerName, false ) && m_OwnerJoined))
+ 			{					
+ 				if( !Payload.empty( ) )
+-				{
++				{	
++					bool isAdmin = false;
+ 					string sUser = Payload;
+ 					CGamePlayer *LastMatch = NULL;
+ 					uint32_t Matches = GetPlayerFromNamePartial( Payload , &LastMatch );
+ 					if (Matches == 1)
+ 						sUser = LastMatch->GetName();
++					for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
++					{
++						if( (*i)->IsRootAdmin( sUser ) || (*i)->IsAdmin( sUser ) )
++						{
++							isAdmin = true;
++							break;
++						}
++					}
++					if (!isAdmin) {
+ 					SendAllChat( m_GHost->m_Language->SettingGameOwnerTo( sUser ) );
+ 					CONSOLE_Print( "[GAME: " + m_GameName + "] Default Owner[" + m_DefaultOwner + "] set GameOwner to A Friend named [" + sUser + "]" );
+-					m_OwnerName = sUser;
++					m_OwnerName += " " + sUser;
++					} else {
++						SendChat( player->GetPID(), "Can't downgrade admins by setting them to Temp Owner!");
++					}
+ 				}
+ 				else if ( !(AdminCheck || RootAdminCheck || isDefaultOwner) )
+ 				{
+ 					SendAllChat( m_GHost->m_Language->SettingGameOwnerTo( User ) );
+ 					CONSOLE_Print( "[GAME: " + m_GameName + "] Default Owner[" + m_DefaultOwner + "] set GameOwner to player [" + User + "]" );
+-					m_OwnerName = User;
++					if ( m_GHost->m_NewOwner == 2 )
++						m_OwnerName += " " + User;
++					else
++						m_OwnerName = User;
+ 				}
+ 			}
+ 			else{
+@@ -6177,7 +6194,10 @@
+ 						m_GHost->m_NewOwner = 3;				
+ 					SendAllChat( m_GHost->m_Language->SettingGameOwnerTo( User ) );
+ 					CONSOLE_Print( "[GAME: " + m_GameName + "] Default Owner[" + m_DefaultOwner + "] set GameOwner to the Player [" + User + "]" );
+-					m_OwnerName = User;
++					if ( m_GHost->m_NewOwner == 2 )
++						m_OwnerName += " " + User;
++					else
++						m_OwnerName = User;
+ 				}
+ 				else{
+ 					bool isOwnerInGame = false;
+Index: game_base.cpp
+===================================================================
+--- game_base.cpp	(revision 85)
++++ game_base.cpp	(working copy)
+@@ -368,7 +368,7 @@
+ 		if ( l > 5 ){          
+         	int DPos = m_GameName.find_last_of("$");
+             if( DPos != string::npos ){
+-            	if( m_GameName.find_first_of("") != string::npos || m_GameName.find(") ") != string::npos )
++            	if( m_GameName.find_first_of("") != string::npos || m_GameName.find("") != string::npos || m_GameName.find("ï€€") != string::npos || m_GameName.find("ï??") != string::npos || m_GameName.find(") ") != string::npos )
+                 	m_GameName = m_GameName.substr(4,DPos-5);
+             	else m_GameName = m_GameName.substr(0,DPos-1);
+         	}
+@@ -2578,8 +2578,10 @@
+ //	SendChat( player, "Owner: "+m_OwnerName+"    Game Name:     " + m_GameName );
+ 	if( !m_HCLCommandString.empty( ) )		
+ 		SendChat( player,"= $ " + m_GameName.substr(0,m_GameName.size( )-4) + " $ autoHCL Command String:  " + m_HCLCommandString +"  (GameMode= -" + m_HCLCommandString +" )" );
++	if (m_GHost->m_BotAutoStartPlayers!=0){
+ 	uint32_t N = m_GHost->m_NumPlayersforAutoStart;	
+ 	SendChat( player, "=            $AutoStarT$ once >= "+ UTIL_ToString(N) +" players filled");
++	} else SendChat( player, "=            $Manual hosting game through PUB, admin should be around$ ");
+ 	if(m_SquirrelText){
+ 	SendChat( player, "=                                                           " );	
+ 	SendChat( player, "= (\\_       No admins here? To FORCE START:                 " );
+@@ -4772,7 +4774,8 @@
+ 			N=30;
+ 		string s = UTIL_ToString(N);
+ 		string viet;
+-		if( !m_DownloadOnlyMode && player->GetDownloadFinished( ) && GetTime( ) - player->GetFinishedDownloadingTime( ) < N )
++		if(!(IsSafe(player->GetName( )) || IsAdmin(player->GetName( )) || IsRootAdmin(player->GetName( )) || m_DownloadOnlyMode))
++		if( player->GetDownloadFinished( ) && GetTime( ) - player->GetFinishedDownloadingTime( ) < N )
+ 		{
+ 			if ( m_GHost->m_VietTxt )
+ 				viet =  ". DL xong, trong " + s + "s ma out la bi BAN nick 2 ngay";
+@@ -4811,9 +4814,12 @@
+ 							(*j)->QueueChatCommand( player->GetName( ) + " is banned 2 days for leaving the lobby too early (" + s + ")s after downloading map" + viet, player->GetName( ), true );
+ 						}
+ 				}	*/
+-	 
+-				if (sk == "LAN(Garena)")
+-					m_GHost->m_DB->ThreadedBanAdd(" ", player->GetName( ), player->GetExternalIPString( ), "in LAN lobby", "LANautobanBot","Download map & left so early",2,0);	 
++				
++				if (sk == "LAN(Garena)"){
++					for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); ++i )
++						(*i)-> AddBan(player->GetName( ),player->GetExternalIPString( ), GetCurrentTime( ), GetGameName(), "LANautobanBot", "Download map & left so early", "2");
++					m_GHost->m_Callables.push_back(m_GHost->m_DB->ThreadedBanAdd(" ", player->GetName( ), player->GetExternalIPString( ), "in LAN lobby", "LANautobanBot","Download map & left so early",2,0));
++				}
+ 				else m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetSpoofedRealm(), player->GetName( ), player->GetExternalIPString(), "lobby in " + sk, "Bnet-autobanBot", "DL & left so early", 2, 0 ));
+ 
+ 				// m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetSpoofedRealm(), player->GetName( ), player->GetExternalIPString(), "in lobby", "AUTOBAN", "DL & left so early", 2, 0 ));
+@@ -4844,7 +4850,10 @@
+ 	if (IsOwner(player->GetName())){
+ 		if ( m_GHost->m_NewOwner > 2 )
+ 			m_GHost->m_NewOwner = 1;
+-		m_OwnerName = m_DefaultOwner;		
++		if ( m_GHost->m_NewOwner == 2 )
++			DelTempOwner( player->GetName() );
++		else
++			m_OwnerName = m_DefaultOwner;		
+ 		if( m_GHost->m_AutoHostAutoStartPlayers > GetNumHumanPlayers( ) + GetSlotsOpen( ) )
+ 							m_GHost->m_AutoHostAutoStartPlayers = GetNumHumanPlayers( ) + GetSlotsOpen( ) ;
+ 							//fixed thanks to Gen's efforts & 0x6D48 & ukaf.b							
+@@ -8139,11 +8148,11 @@
+ 			(*i)->SetReserved( false );
+ 	}
+ }
+-/* bool CBaseGame :: IsOwner( string name )
++bool CBaseGame :: IsOwner( string name )
+ {
+ 	string OwnerLower = m_OwnerName;
+-	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
+ 	transform( OwnerLower.begin( ), OwnerLower.end( ), OwnerLower.begin( ), (int(*)(int))tolower );
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );	
+ 	stringstream SS;
+ 	string s;
+ 	SS << OwnerLower;
+@@ -8156,13 +8165,32 @@
+ 		}
+ 	}
+ 	return false;
+-} */
+-bool CBaseGame :: IsOwner( string name )
++}
++/* bool CBaseGame :: IsOwner( string name )
+ {
+ 	string OwnerLower = m_OwnerName;
+ 	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
+ 	transform( OwnerLower.begin( ), OwnerLower.end( ), OwnerLower.begin( ), (int(*)(int))tolower );
+ 	return name == OwnerLower;
++} */
++
++void CBaseGame :: DelTempOwner( string name )
++{
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	stringstream SS;
++	string tusers="";
++	string luser;
++	SS << m_OwnerName;
++	while( !SS.eof( ) )
++	{
++		SS >> luser;
++		if (luser != name)
++		if (tusers.length()==0)
++			tusers = luser;
++		else
++			tusers +=" "+luser;
++	}
++	m_OwnerName = tusers;
+ }
+ 
+ bool CBaseGame :: IsReserved( string name )
+@@ -8411,7 +8439,7 @@
+ 			else
+ 			{
+ 				string s = string();
+-				s = m_GHost->m_Language->WaitingForPlayersBeforeAutoStart( UTIL_ToString( m_AutoStartPlayers ), UTIL_ToString( m_AutoStartPlayers - PNr ));
++				s = m_GHost->m_Language->WaitingForPlayersBeforeAutoStart( UTIL_ToString( GetNumPlayers( ) ), UTIL_ToString( m_AutoStartPlayers - PNr ));
+ 				m_ActualyPrintPlayerWaitingStartDelay = 0;
+ 				bool EnoughPlayers = false;
+ 				if (m_GetMapNumTeams!=2)
+@@ -8988,6 +9016,24 @@
+ 	return CustomReason(GetTime(), reason, name);
+ }
+ 
++string CBaseGame :: GetCurrentTime( )
++{
++	time_t Now = time( NULL );
++	char Time[17];
++	memset( Time, 0, sizeof( char ) * 17 );
++	time_t times = Now+ m_GHost->m_ReplayTimeShift;
++	strftime( Time, sizeof( char ) * 17, "%Y-%m-%d %H-%M", localtime( &times ) );
++	string MinString = UTIL_ToString( ( m_GameTicks / 1000 ) / 60 );
++	string SecString = UTIL_ToString( ( m_GameTicks / 1000 ) % 60 );
++
++	if( MinString.size( ) == 1 )
++		MinString.insert( 0, "0" );
++
++	if( SecString.size( ) == 1 )
++		SecString.insert( 0, "0" );
++	return string( Time );
++}
++
+ string CBaseGame :: GetGameInfo()
+ {
+ 	string sMsg = string();
+Index: game_base.h
+===================================================================
+--- game_base.h	(revision 59)
++++ game_base.h	(working copy)
+@@ -440,6 +440,7 @@
+ 	virtual void AddToSpoofed( string server, string name, bool sendMessage );
+ 	virtual void AddToReserved( string name, unsigned char nr );
+ 	virtual void DelFromReserved( string name );
++	virtual void DelTempOwner( string name );
+ 	virtual void AddGameName( string name);
+ 	virtual void AutoSetHCL ( );
+ 	virtual bool IsGameName( string name );
+@@ -495,6 +496,7 @@
+ 	virtual string CustomReason( string reason, string name );
+ 	virtual string CustomReason( uint32_t ctime, string reason, string name);
+ 	virtual string GetGameInfo( );
++	virtual string GetCurrentTime( );
+ 	virtual void SetDynamicLatency( );
+ 
+ };
+Index: gameplayer.cpp
+===================================================================
+--- gameplayer.cpp	(revision 61)
++++ gameplayer.cpp	(working copy)
+@@ -333,6 +333,7 @@
+ 		m_LastMessages.pop_front( );	
+ 	m_LastMessages.push_back(message);
+ 	if( m_LastMessages.size( ) == 6 )
++		if(!(m_Game->IsSafe(GetName()) || m_Game->IsAdmin(GetName()) || m_Game->IsRootAdmin(GetName()) || m_Game->IsOwner(GetName()) ))
+ 		m_Game->SendAllChat("Spam control detects a spammer [" + GetName( ) +"] will be KICKED for flooding");
+ }
+ 
+Index: ghost.cpp
+===================================================================
+--- ghost.cpp	(revision 85)
++++ ghost.cpp	(working copy)
+@@ -2279,6 +2279,7 @@
+ 	m_BnetNonAdminCommands = CFG->GetInt( "bot_bnetnonadmincommands", 1 ); //Gen
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
++	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_Latency = CFG->GetInt( "bot_latency", 100 );
+@@ -4029,6 +4030,7 @@
+ 	m_BnetNonAdminCommands = CFG->GetInt( "bot_bnetnonadmincommands", 1 ); //Gen
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
++	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_LobbyTimeLimitMax = CFG->GetInt( "bot_lobbytimelimitmax", 150 );
+@@ -4116,6 +4118,8 @@
+ 	m_RehostIfNameTaken = CFG->GetInt( "bot_rehostifnametaken", 1 ) == 0 ? false : true;
+ 	m_RootAdmins = CFG->GetString( "bot_rootadmins", string () );
+ 	transform( m_RootAdmins.begin( ), m_RootAdmins.end( ), m_RootAdmins.begin( ), (int(*)(int))tolower );
++	m_AdminsWithUnhost = CFG->GetString( "bot_adminscanunhost", string () );
++	transform( m_AdminsWithUnhost.begin( ), m_AdminsWithUnhost.end( ), m_AdminsWithUnhost.begin( ), (int(*)(int))tolower );
+ 	m_FakePings = CFG->GetString( "bot_fakepings", string () );
+ 	transform( m_FakePings.begin( ), m_FakePings.end( ), m_FakePings.begin( ), (int(*)(int))tolower );
+ 	m_patch23 = CFG->GetInt( "bot_patch23ornewer", 1 ) == 0 ? false : true;
+@@ -4627,6 +4631,24 @@
+ 	return false;
+ }
+ 
++bool CGHost :: IsAdminWithUnhost(string name)
++{
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	stringstream SS;
++	string s;
++	SS << m_AdminsWithUnhost;
++
++	while( !SS.eof( ) )
++	{
++		SS >> s;
++		if (name == s)
++		{
++			return true;
++		}
++	}
++	return false;
++}
++
+ void CGHost :: DelRootAdmin( string name)
+ {
+ 	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
+Index: ghost.h
+===================================================================
+--- ghost.h	(revision 85)
++++ ghost.h	(working copy)
+@@ -257,6 +257,7 @@
+ 	string m_InvalidReplayChars;
+ 	bool m_QueueGameRefresh;
+ 	bool m_VietTxt;
++	bool m_EnableUnhost;
+ 	bool m_ReplaceBanWithWarn;
+ 	bool m_forceautohclindota;
+ 	bool m_PlaceAdminsHigherOnlyInDota;
+@@ -381,6 +382,7 @@
+ 	uint32_t m_ShowDownloadsInfoTime;
+ 	vector<string> m_Commands;
+ 	string m_RootAdmins;
++	string m_AdminsWithUnhost;
+ 	string m_FakePings;
+ 	string m_UDPPassword;
+ 	bool m_onlyownerscanswapadmins;
+@@ -432,6 +434,7 @@
+ 	void UDPCommands(string Message);
+ 	bool ShouldFakePing(string name);
+ 	bool IsRootAdmin(string name);
++	bool IsAdminWithUnhost(string name);
+ 	void AddRootAdmin(string name);
+ 	void DelRootAdmin(string name);
+ 	void ReloadConfig();

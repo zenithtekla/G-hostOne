@@ -1,0 +1,278 @@
+Index: game.cpp
+===================================================================
+--- game.cpp	(revision 93)
++++ game.cpp	(working copy)
+@@ -1460,7 +1460,55 @@
+ 						LastMatch->SetReserved(false);
+ 					}
+ 				}
++				
++				// Clear Blacklisted Name
++				
++				if( Command == "clearblname" || Command == "clearblacklistedname" || Command == "clearblacklistname" )
++				{
++					if (!CMDCheck(CMD_delban, AdminAccess))
++					{
++						SendChat(player->GetPID(),(m_GHost->m_Language->YouDontHaveAccessToThatCommand( )));
++						return HideCommand;
++					}
++					m_GHost->m_BlacklistedNames.clear();
++				}				
++				
++				// DEL Blacklisted Name
++				
++				if( ( Command == "delblname" || Command == "delblacklistedname" || Command == "delblacklistname" ) && !Payload.empty( ) )
++				{
++					if (!CMDCheck(CMD_delban, AdminAccess))
++					{
++						SendChat(player->GetPID(),(m_GHost->m_Language->YouDontHaveAccessToThatCommand( )));
++						return HideCommand;
++					}
+ 
++					string PlayerName;
++					CGamePlayer *LastMatch = NULL;
++					uint32_t Matches = GetPlayerFromNamePartial( Payload, &LastMatch );
++					
++					if (Matches == 0)
++						PlayerName = Payload;
++					else
++						PlayerName = LastMatch->GetName();
++						
++					if (!IsBlacklisted( PlayerName ))
++					{
++						SendChat(player->GetPID(), m_GHost->m_Language->UserIsNotBanned(m_Server, User));
++						return HideCommand;
++					}
++					if( Matches == 0 )
++					{
++						DelBlacklistedName( PlayerName );
++					}
++					else if( Matches == 1 )
++					{
++							DelBlacklistedName( LastMatch->GetName( ) );
++					}
++					else
++						SendChat( player->GetPID(), "Can't del blacklisted name. More than one match found");
++				}
++
+ 				//
+ 				// !DELBAN
+ 				// !UNBAN
+Index: game_base.cpp
+===================================================================
+--- game_base.cpp	(revision 93)
++++ game_base.cpp	(working copy)
+@@ -656,7 +656,19 @@
+ 		else
+ 			i++;
+ 	}
++	m_GBCallableBanList = m_GHost->m_DB->ThreadedBanList( m_Server );
++	if( m_GBCallableBanList && m_GBCallableBanList->GetReady( ) )
++	{
++		CONSOLE_Print( "[INFO] refreshed ban list (" + UTIL_ToString( m_BanList.size( ) ) + " -> " + UTIL_ToString( m_GBCallableBanList->GetResult( ).size( ) ) + " bans)" );
+ 
++		for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
++			delete *i;
++
++		m_BanList = m_GBCallableBanList->GetResult( );
++		m_GHost->m_DB->RecoverCallable( m_GBCallableBanList );
++		delete m_GBCallableBanList;
++		m_GBCallableBanList = NULL;
++	}
+ 	for( vector<CCallableBanUpdate *> :: iterator i = m_BanUpdates.begin( ); i != m_BanUpdates.end( ); )
+ 	{
+ 		if( (*i)->GetReady( ) )
+@@ -2908,7 +2920,16 @@
+ 		potential->SetDeleteMe( true );
+ 		return;
+ 	}
++	// check if the new player's name is blacklisted
+ 
++	if( IsBlacklisted(joinPlayer->GetName( )) || IsBannedname(joinPlayer->GetName( )) )
++	{
++		CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with blacklisted name" );
++		potential->Send( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
++		potential->SetDeleteMe( true );
++		return;
++	}
++	
+ 	// check if the new player's name is the same as the virtual host name
+ 
+ 	if( joinPlayer->GetName( ) == m_VirtualHostName )
+@@ -3017,12 +3038,9 @@
+ 	if (!Reserved)
+ 	if (!m_ScoreCheckChecked)
+ 	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+-	{
+-		string BlacklistedName = joinPlayer->GetName( );
+-		transform( BlacklistedName.begin( ), BlacklistedName.end( ), BlacklistedName.begin( ), (int(*)(int))tolower );		
+-		CDBBan *Ban = (*i)->IsBannedName( BlacklistedName );
+-		CDBBan *Bann = (*i)->IsBannedName( joinPlayer->GetName( ) );
+-		if( Ban || Bann )
++	{	
++		CDBBan *Ban = (*i)->IsBannedName( joinPlayer->GetName( ) );
++		if( Ban )
+ 		{
+ 			if( JoinedRealm.size() < 3 ){
+ 				potential->Send( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+@@ -6066,7 +6084,9 @@
+ 			float Rate = (float)MapSize / 1024 / Seconds;
+ 			if ( m_GHost->m_DLRateLimit !=0 && (uint32_t)Rate < m_GHost->m_DLRateLimit ){
+ 				SendAllChat( m_GHost->m_Language->KickMsgForSlowDL( player->GetName( ) ) );
+-				m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetJoinedRealm( ), player->GetName( ), player->GetExternalIPString(), m_GameName, "AUTOBAN", "Slow internet", 1, 0 ));	
++				m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetJoinedRealm( ), player->GetName( ), player->GetExternalIPString(), m_GameName, "AUTOBAN", "Slow internet", 1, 0 ));
++				if (m_GHost->m_BlacklistSlowDLder)
++					m_GHost->m_BlacklistedNames +=player->GetName( );
+ 				player->SetDeleteMe( true );
+ 				player->SetLeftReason( "kicked for downloading too slowly" );
+ 				player->SetLeftCode( PLAYERLEAVE_LOBBY );
+@@ -8175,6 +8195,54 @@
+ 			(*i)->SetReserved( false );
+ 	}
+ }
++bool CBaseGame :: IsBannedname( string name )
++{
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
++	{
++		if( (*i)->GetName( ) == name )
++			return true;
++	}
++	return false;
++}
++bool CBaseGame :: IsBlacklisted( string name )
++{
++	string blacklist = m_GHost->m_BlacklistedNames;
++	transform( blacklist.begin( ), blacklist.end( ), blacklist.begin( ), (int(*)(int))tolower );
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );	
++	stringstream SS;
++	string s;
++	SS << blacklist;
++	while( !SS.eof( ) )
++	{
++		SS >> s;
++		if (name == s)
++		{
++			return true;
++		}
++	}
++	return false;
++}
++void CBaseGame :: DelBlacklistedName( string name )
++{
++	string blacklist = m_GHost->m_BlacklistedNames;
++	transform( blacklist.begin( ), blacklist.end( ), blacklist.begin( ), (int(*)(int))tolower );
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	stringstream SS;
++	string tusers="";
++	string luser;
++	SS << blacklist;
++	while( !SS.eof( ) )
++	{
++		SS >> luser;
++		if (luser != name)
++		if (tusers.length()==0)
++			tusers = luser;
++		else
++			tusers +=" "+luser;
++	}
++	m_GHost->m_BlacklistedNames = tusers;
++}
+ bool CBaseGame :: IsOwner( string name )
+ {
+ 	string OwnerLower = m_OwnerName;
+Index: game_base.h
+===================================================================
+--- game_base.h	(revision 93)
++++ game_base.h	(working copy)
+@@ -179,6 +179,7 @@
+ 	uint32_t m_LastInfoShow;
+ 	uint32_t m_LastGenInfoShow;
+ 	uint32_t m_LastOwnerInfoShow;
++	CCallableBanList *m_GBCallableBanList;			// threaded database ban list in progress
+ 	uint32_t m_LastProcessedTicks;
+ 	bool m_DoAutoWarns;								// enable automated warns for early leavers
+ 
+@@ -186,6 +187,7 @@
+ 	vector<CGamePlayer *> m_Players;			// vector of players
+ 	vector<CDBGamePlayer *> m_DBGamePlayers;	// vector of potential gameplayer data for the database
+ 	vector<CDBBan *> m_DBBans;					// vector of potential ban data for the database (see the Update function for more info, it's not as straightforward as you might think)
++	vector<CDBBan *> m_BanList;					// vector of cached bans
+ 	CDBBan * m_DBBanLast;						// last ban for the !banlast command - this is a pointer to one of the items in m_DBBans
+ 	vector<CGameSlot> m_Slots;					// vector of slots
+ 	vector<string> m_AutoBanTemp;
+@@ -442,11 +444,14 @@
+ 	virtual void AddToReserved( string name, unsigned char nr );
+ 	virtual void DelFromReserved( string name );
+ 	virtual void DelTempOwner( string name );
++	virtual void DelBlacklistedName( string name );
+ 	virtual void AddGameName( string name);
+ 	virtual void AutoSetHCL ( );
+ 	virtual bool IsGameName( string name );
+ //	virtual void AddToReserved( string name );
+ 	virtual bool IsOwner( string name );
++	virtual bool IsBlacklisted( string name );
++	virtual bool IsBannedname( string name );
+ 	virtual bool IsReserved( string name );
+ 	virtual bool IsDownloading( );
+ 	virtual bool IsGameDataSaved( );
+Index: ghost.cpp
+===================================================================
+--- ghost.cpp	(revision 93)
++++ ghost.cpp	(working copy)
+@@ -2249,6 +2249,7 @@
+ 	m_SaveReplays = CFG->GetInt( "bot_savereplays", 0 ) == 0 ? false : true;
+ 	m_ReplayPath = UTIL_AddPathSeperator( CFG->GetString( "bot_replaypath", string( ) ) );
+ 	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
++	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" );
+ 	m_HideIPAddresses = CFG->GetInt( "bot_hideipaddresses", 0 ) == 0 ? false : true;
+ 	m_CheckMultipleIPUsage = CFG->GetInt( "bot_checkmultipleipusage", 1 ) == 0 ? false : true;
+ 
+@@ -2293,6 +2294,7 @@
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+ 	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
++	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_Latency = CFG->GetInt( "bot_latency", 100 );
+@@ -4061,6 +4063,7 @@
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+ 	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
++	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_LobbyTimeLimitMax = CFG->GetInt( "bot_lobbytimelimitmax", 150 );
+@@ -4160,9 +4163,10 @@
+ 	m_PlayersfromRMK = string();
+ 	m_dropifdesync = CFG->GetInt( "bot_dropifdesync", 1 ) == 0 ? false : true; //Metal_Koola
+ 	m_UDPPassword = CFG->GetString( "bot_udppassword", string () );
+-	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF483D8BOne" );
++	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
+ 	if (m_VirtualHostName.length()>15)
+ 		m_VirtualHostName=m_VirtualHostName.substr(0,15);
++	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" );
+ 	m_DropVoteTime = CFG->GetInt( "bot_dropvotetime", 30 );
+ 	m_IPBanning = CFG->GetInt( "bot_ipbanning", 2 );
+ 	m_Banning = CFG->GetInt( "bot_banning", 1 );
+Index: ghost.h
+===================================================================
+--- ghost.h	(revision 93)
++++ ghost.h	(working copy)
+@@ -183,6 +183,7 @@
+ 	bool m_SaveReplays;						// config value: save replays
+ 	string m_ReplayPath;					// config value: replay path
+ 	string m_VirtualHostName;				// config value: virtual host name
++	string m_BlacklistedNames;				// config value: blacklisted names
+ 	bool m_HideIPAddresses;					// config value: hide IP addresses from players
+ 	bool m_CheckMultipleIPUsage;			// config value: check for multiple IP address usage
+ 	uint32_t m_SpoofChecks;					// config value: do automatic spoof checks or not
+@@ -267,6 +268,7 @@
+ 	bool m_QueueGameRefresh;
+ 	bool m_VietTxt;
+ 	bool m_EnableUnhost;
++	bool m_BlacklistSlowDLder;
+ 	bool m_ReplaceBanWithWarn;
+ 	bool m_forceautohclindota;
+ 	bool m_PlaceAdminsHigherOnlyInDota;

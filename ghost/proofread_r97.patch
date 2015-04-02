@@ -1,0 +1,699 @@
+Index: game.cpp
+===================================================================
+--- game.cpp	(revision 93)
++++ game.cpp	(working copy)
+@@ -855,9 +855,8 @@
+ 	uint32_t AdminAccess = 0;
+ 	bool AdminCheck = false;
+ 	bool BluePlayer = false;
+-	bool isDefaultOwner = player->GetName( ) == m_DefaultOwner ;
+-	if( !(m_GHost->m_EnableUnhost || m_GHost->IsAdminWithUnhost(User)) )
+-		isDefaultOwner = false; 
++	bool TempOwnerCheck = false;
++	bool isDefaultOwner = player->GetName( ) == m_DefaultOwner ; 
+ 	CGamePlayer *p = NULL;
+ 	unsigned char Nrt;
+ 	unsigned char Nr = 255;
+@@ -882,11 +881,8 @@
+ 		AdminAccess = m_GHost->CMDAccessAddOwner(0);
+ 	}
+ 
+-	if (IsOwner(User))
+-	{		
+-		AdminCheck = true;
+-		AdminAccess = m_GHost->CMDAccessAddOwner(0);
+-	}
++	if (IsOwner(User))	
++		TempOwnerCheck = true;
+ 
+ 	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+ 	{
+@@ -895,8 +891,6 @@
+ 			if( !player->GetJoinedRealm( ).empty( ) ){
+ 				AdminCheck = true;
+ 				AdminAccess = (*i)->LastAccess();
+-				if (IsOwner(User))
+-					AdminAccess = m_GHost->CMDAccessAddOwner(AdminAccess);
+ 				break;
+ 			}
+ 			if(m_GHost->m_AdminsOnLan)
+@@ -919,13 +913,12 @@
+ 
+ 	// upgrade LAN players to rootadmins in case bot_lanrootadmins = 1
+ 	if ((m_GHost->m_LanRootAdmins && player->IsLAN()) )
+-	{
+ 		RootAdminCheck = true;
+-	}
+ 
++	bool RootOwner = (m_GHost->m_EnableUnhost || m_GHost->IsAdminWithUnhost(User));
+ 	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+ 	{
+-		if( (*i)->GetServer( ) == player->GetSpoofedRealm( ) && ((*i)->IsRootAdmin( User ) || (IsOwner(User) && isDefaultOwner) ) )
++		if( (*i)->GetServer( ) == player->GetSpoofedRealm( ) && ((*i)->IsRootAdmin( User ) || (IsOwner(User) && isDefaultOwner && RootOwner) ) )
+ 		{
+ 			RootAdminCheck = true;
+ 			break;
+@@ -938,7 +931,7 @@
+ 		AdminAccess = CMDAccessAll();
+ 	}
+ 
+-	if( AdminCheck || RootAdminCheck )
++	if( AdminCheck || RootAdminCheck || TempOwnerCheck )
+ 	{
+ 		CONSOLE_Print( "[GAME: " + m_GameName + "] admin [" + User + "] sent command [" + Command + "] with payload [" + Payload + "]" );
+ 				
+@@ -947,7 +940,7 @@
+ 			/*****************
+ 			* ADMIN COMMANDS *
+ 			******************/
+-			if( !IsOwner(User) )
++			if( !TempOwnerCheck && ( RootAdminCheck || AdminCheck ) )
+ 			{			
+ 				//
+ 				// !AUTOBAN
+@@ -1460,7 +1453,55 @@
+ 						LastMatch->SetReserved(false);
+ 					}
+ 				}
++				
++				// Clear Blacklisted Name
++				
++				if( Command == "clearblname" || Command == "clearblacklistedname" || Command == "clearblacklistname" )
++				{
++					if (!CMDCheck(CMD_delban, AdminAccess))
++					{
++						SendChat(player->GetPID(),(m_GHost->m_Language->YouDontHaveAccessToThatCommand( )));
++						return HideCommand;
++					}
++					m_GHost->m_BlacklistedNames.clear();
++				}				
++				
++				// DEL Blacklisted Name
++				
++				if( ( Command == "delblname" || Command == "delblacklistedname" || Command == "delblacklistname" ) && !Payload.empty( ) )
++				{
++					if (!CMDCheck(CMD_delban, AdminAccess))
++					{
++						SendChat(player->GetPID(),(m_GHost->m_Language->YouDontHaveAccessToThatCommand( )));
++						return HideCommand;
++					}
+ 
++					string PlayerName;
++					CGamePlayer *LastMatch = NULL;
++					uint32_t Matches = GetPlayerFromNamePartial( Payload, &LastMatch );
++					
++					if (Matches == 0)
++						PlayerName = Payload;
++					else
++						PlayerName = LastMatch->GetName();
++						
++					if (!IsBlacklisted( PlayerName ))
++					{
++						SendChat(player->GetPID(), m_GHost->m_Language->UserIsNotBanned(m_Server, User));
++						return HideCommand;
++					}
++					if( Matches == 0 )
++					{
++						DelBlacklistedName( PlayerName );
++					}
++					else if( Matches == 1 )
++					{
++							DelBlacklistedName( LastMatch->GetName( ) );
++					}
++					else
++						SendChat( player->GetPID(), "Can't del blacklisted name. More than one match found");
++				}
++
+ 				//
+ 				// !DELBAN
+ 				// !UNBAN
+@@ -2248,7 +2289,7 @@
+ 				if( ( Command == "autostart" || Command == "as" ) && !m_CountDownStarted )
+ 				{
+ 					if (m_GHost->m_onlyownerscanstart)
+-						if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++						if ( !RootAdminCheck )
+ 						{
+ 							SendChat( player->GetPID(), "Only the owner can start the game.");
+ 							return HideCommand;
+@@ -4688,7 +4729,6 @@
+ 				//
+ 				// !PUB (rehost as public game)
+ 				//
+-				if(isDefaultOwner || (!isDefaultOwner && !IsOwner(User)))
+ 				if( Command == "pub" && !m_CountDownStarted && !m_SaveGame )
+ 				{
+ 					if (!CMDCheck(CMD_host, AdminAccess))
+@@ -4698,7 +4738,7 @@
+ 					}
+ 
+ 					if (m_GHost->m_onlyownerscanstart && !Payload.empty())
+-						if ( !RootAdminCheck && !isDefaultOwner )
++						if ( !RootAdminCheck )
+ 						{
+ 							SendChat( player->GetPID(), "Only the owner can change the gamename.");
+ 							return HideCommand;
+@@ -4842,7 +4882,7 @@
+ 					// e.g. "1.2.3.4 6112" -> ip: "1.2.3.4", port: "6112"
+ 
+ 					string IP;
+-					uint32_t Port = 6112;
++					uint32_t Port = m_GHost->m_BroadCastPort;
+ 					stringstream SS;
+ 					SS << Payload;
+ 					SS >> IP;
+@@ -5087,7 +5127,7 @@
+ 				if( ( Command == "startn" || Command == "startf" || Command == "forcestart" ) && !m_CountDownStarted )
+ 				{
+ 					if (m_GHost->m_onlyownerscanstart)
+-					if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++					if ( !RootAdminCheck )
+ 					{
+ 						SendChat( player->GetPID(), "Only the owner can start the game.");
+ 						return HideCommand;
+@@ -5118,7 +5158,7 @@
+ 				if( Command == "start" && !m_CountDownStarted )
+ 				{					
+ 					if (m_GHost->m_onlyownerscanstart)
+-					if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++					if ( !RootAdminCheck )
+ 					{
+ 						SendChat( player->GetPID(), "Only the owner can start the game.");
+ 						return HideCommand;
+@@ -5211,7 +5251,7 @@
+ 									return HideCommand;
+ 								}
+ 
+-								if (isAdmin && !((IsOwner(User) && isDefaultOwner) || RootAdminCheck))
++								if (isAdmin && !(isDefaultOwner || RootAdminCheck))
+ 								{
+ 									SendChat( player->GetPID(), "You can't swap an admin!");
+ 									return HideCommand;
+@@ -5260,14 +5300,14 @@
+ 				}	*/
+ 				
+ 				if( Command == "unhost" && !m_CountDownStarted )
+-					if( m_GHost->m_EnableUnhost || m_GHost->IsAdminWithUnhost(User) )
++					if( RootOwner )
+ 						m_Exiting = true;
+ 
+ 				//
+ 				// !UNLOCK
+ 				//
+ 
+-				if( Command == "unlock" && ( RootAdminCheck || IsOwner( User ) ) )
++				if( Command == "unlock" && RootAdminCheck )
+ 				{
+ 					SendAllChat( m_GHost->m_Language->GameUnlocked( ) );
+ 					m_Locked = false;
+@@ -5545,7 +5585,7 @@
+ 			* TEMP OWNER COMMANDS *
+ 			**********************/
+ 			// !a, !as, !close, !closeall, !fp, !df, !dfs, !swap, !open, !openall, !holds, !hold, !unhold, !start, !startn. It's helpful for lobby control, we don't allow a sudden ending of the game by !end, no such command and no ingame command in here.
+-			if( !RootAdminCheck && !isDefaultOwner && IsOwner( User ) )
++			if( !RootAdminCheck && !isDefaultOwner && TempOwnerCheck )
+ 			{				
+ 				//
+ 				// !ABORT (abort countdown)
+@@ -5566,7 +5606,7 @@
+ 				if( ( Command == "autostart" || Command == "as" ) && !m_CountDownStarted )
+ 				{
+ 					if (m_GHost->m_onlyownerscanstart)
+-						if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++						if (!RootAdminCheck)
+ 						{
+ 							SendChat( player->GetPID(), "Only the owner can start the game.");
+ 							return HideCommand;
+@@ -5593,11 +5633,10 @@
+ 				//
+ 				// !CLOSE (close slot)
+ 				//
+-				if(!isDefaultOwner && IsOwner(User))
+ 
+ 				if( Command == "close" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 				{
+-					if (!CMDCheck(CMD_close, AdminAccess))
++					if (!TempOwnerCheck)
+ 					{
+ 						SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+ 						return HideCommand;
+@@ -5658,7 +5697,7 @@
+ 
+ 				if( Command == "closeall" && !m_GameLoading && !m_GameLoaded )
+ 				{
+-					if (!CMDCheck(CMD_close, AdminAccess))
++					if (!TempOwnerCheck)
+ 					{
+ 						SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+ 						return HideCommand;
+@@ -5830,11 +5869,11 @@
+ 				//
+ 				// !OPEN (open slot)
+ 				//
+-				if(!isDefaultOwner && IsOwner(User))
++				if(!isDefaultOwner && TempOwnerCheck)
+ 
+ 				if( Command == "open" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 				{
+-					if (!CMDCheck(CMD_open, AdminAccess))
++					if (!TempOwnerCheck)
+ 					{
+ 						SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+ 						return HideCommand;
+@@ -5904,7 +5943,7 @@
+ 
+ 				if( Command == "openall" && !m_GameLoading && !m_GameLoaded )
+ 				{
+-					if (!CMDCheck(CMD_open, AdminAccess))
++					if (!TempOwnerCheck)
+ 					{
+ 						SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+ 						return HideCommand;
+@@ -5942,7 +5981,7 @@
+ 						}
+ 					}
+ 					if (m_GHost->m_onlyownerscanstart)
+-					if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++					if (!RootAdminCheck)
+ 					{
+ 						SendChat( player->GetPID(), "Only the owner can start the game.");
+ 						return HideCommand;
+@@ -5991,7 +6030,7 @@
+ 						}
+ 					}
+ 					if (m_GHost->m_onlyownerscanstart)
+-					if ((!IsOwner( User) && GetPlayerFromName(m_OwnerName, false)) && !RootAdminCheck )
++					if (!RootAdminCheck)
+ 					{
+ 						SendChat( player->GetPID(), "Only the owner can start the game.");
+ 						return HideCommand;
+@@ -6017,7 +6056,7 @@
+ 				//
+ 				// !PUB (rehost as public game)
+ 				//
+-				if(!isDefaultOwner && IsOwner(User))
++				if(!isDefaultOwner && TempOwnerCheck)
+ 				if(Command == "pub" && !m_CountDownStarted && !m_SaveGame )
+ 				{
+ 					SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+@@ -6027,7 +6066,7 @@
+ 				//
+ 				// !KICK
+ 				//
+-				if(!isDefaultOwner && IsOwner(User))
++				if(!isDefaultOwner && TempOwnerCheck)
+ 				if(Command == "kick" && !m_CountDownStarted && !m_SaveGame )
+ 				{
+ 					SendChat( player->GetPID(), m_GHost->m_Language->UnableToCommand(string(1, m_GHost->m_CommandTrigger)) );
+@@ -6040,7 +6079,7 @@
+ 
+ 				if( Command == "swap" && !Payload.empty( ) && !m_GameLoading && !m_GameLoaded )
+ 				{
+-					if (!CMDCheck(CMD_swap, AdminAccess))
++					if (!TempOwnerCheck)
+ 					{
+ 						SendChat(player->GetPID(), m_GHost->m_Language->YouDontHaveAccessToThatCommand( ));
+ 						return HideCommand;
+@@ -6152,7 +6191,13 @@
+ 	//
+ 		if( Command == "owner" || Command =="admin" )
+ 		{						
+-			if( RootAdminCheck || IsOwner( User ) || (!GetPlayerFromName( m_OwnerName, false ) && m_OwnerJoined))
++			if(IsBlacklisted(User)){
++				player->SetSocket( NULL );
++				player->SetDeleteMe( true );
++				player->SetLeftReason( "Kicked due to blacklisted names" );
++				return HideCommand;
++			}
++			if( RootAdminCheck || AdminCheck || TempOwnerCheck || (isDefaultOwner && m_OwnerJoined))
+ 			{					
+ 				if( !Payload.empty( ) )
+ 				{	
+Index: game_base.cpp
+===================================================================
+--- game_base.cpp	(revision 93)
++++ game_base.cpp	(working copy)
+@@ -109,7 +109,7 @@
+ 	m_VirtualHostName = m_GHost->m_VirtualHostName;
+ 	m_OwnerName = nOwnerName;
+ 	transform( m_OwnerName.begin( ), m_OwnerName.end( ), m_OwnerName.begin( ), (int(*)(int))tolower );
+-	m_DefaultOwner = m_OwnerName;	
++	m_DefaultOwner = m_OwnerName.empty() ? "Gen" : m_OwnerName;	
+ 	m_CreatorName = nCreatorName;
+ 	m_CreatorServer = nCreatorServer;
+ 	m_HCLCommandString = m_Map->GetMapDefaultHCL( );
+@@ -206,7 +206,7 @@
+ 	m_SwitchNr = 0;
+ 	m_Switched = false;
+ 	m_CreatorAsFriend = m_GHost->m_addcreatorasfriendonhost;
+-	m_GarenaOnly = false;
++	m_GarenaOnly = m_GHost->m_GarenaOnly;
+ 	m_GameOverCanceled = false;
+ 	m_GameOverDiffCanceled = false;
+ 	m_CountryCheck = false;
+@@ -241,6 +241,8 @@
+ 	m_LastInfoShow = GetTime( );
+ 	m_LastGenInfoShow = GetTime( );
+ 	m_LastOwnerInfoShow = GetTime( );
++//	m_LastBanRefreshTime = GetTime( );
++//	m_GBCallableBanList = m_GHost->m_DB->ThreadedBanList( m_Server );
+ 	m_LocalAdminMessages = m_GHost->m_LocalAdminMessages;
+ 	m_FPEnable = m_GHost->m_FakePlayersLobby;
+ 	m_MoreFPs = m_GHost->m_MoreFPsLobby;
+@@ -656,7 +658,22 @@
+ 		else
+ 			i++;
+ 	}
++	/* if( !m_GBCallableBanList && GetTime( ) >= m_LastBanRefreshTime + 600 )
++		m_GBCallableBanList = m_GHost->m_DB->ThreadedBanList( m_Server );
++	if( m_GBCallableBanList && m_GBCallableBanList->GetReady( ) && !m_GHost->m_BanListLoaded )
++	{
++		CONSOLE_Print( "[INFO] refreshed ban list (" + UTIL_ToString( m_BanList.size( ) ) + " -> " + UTIL_ToString( m_GBCallableBanList->GetResult( ).size( ) ) + " bans)" );
+ 
++		for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
++			delete *i;
++
++		m_BanList = m_GBCallableBanList->GetResult( );
++		m_GHost->m_DB->RecoverCallable( m_GBCallableBanList );
++		delete m_GBCallableBanList;
++		m_GBCallableBanList = NULL;
++		m_LastBanRefreshTime = GetTime( );
++		m_GHost->m_BanListLoaded = true;
++	} */
+ 	for( vector<CCallableBanUpdate *> :: iterator i = m_BanUpdates.begin( ); i != m_BanUpdates.end( ); )
+ 	{
+ 		if( (*i)->GetReady( ) )
+@@ -823,14 +840,14 @@
+ 				MapHeight.push_back( 0 );
+ 				if (m_GHost->m_broadcastinlan)
+ 				{
+-					m_GHost->m_UDPSocket->Broadcast( m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, "Gen", GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
+-					m_GHost->m_UDPSocket->SendTo("127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, "Gen", GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
++					m_GHost->m_UDPSocket->Broadcast( m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
++					m_GHost->m_UDPSocket->SendTo("127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ 				}
+ //				if (m_GarenaOnly)
+ 				{
+ 					//m_GHost->m_UDPSocket->SendTo("127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, "Gen", GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), 12, 12, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ 				}
+-				m_GHost->UDPChatSend(m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, "Gen", GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
++				m_GHost->UDPChatSend(m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), MapWidth, MapHeight, m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, "Save\\Multiplayer\\" + m_SaveGame->GetFileNameNoPath( ), m_SaveGame->GetMagicNumber( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ 			}
+ 			else
+ 			{
+@@ -840,15 +857,15 @@
+ 				MapGameType.push_back( 0 );
+ 				if (m_GHost->m_broadcastinlan)
+ 				{
+-					m_GHost->m_UDPSocket->Broadcast( m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, "Gen", GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
+-					m_GHost->m_UDPSocket->SendTo( "127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, "Gen", GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
++					m_GHost->m_UDPSocket->Broadcast( m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
++					m_GHost->m_UDPSocket->SendTo( "127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), slotstotal, slotsopen, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ 				}
+ //				if (m_GarenaOnly)
+ 				{
+ //					m_GHost->m_UDPSocket->SendTo( "127.0.0.1", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, "Gen", GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), 12, 12, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ //					m_GHost->m_UDPSocket->SendTo( "192.168.1.2", m_GHost->m_BroadCastPort, m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, "Gen", GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), 12, 12, m_HostPort, FixedHostCounter, m_EntryKey ) );
+ 				}
+-				m_GHost->UDPChatSend(m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, "Gen", GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), 12, 12, m_HostPort, FixedHostCounter, m_EntryKey ));
++				m_GHost->UDPChatSend(m_Protocol->SEND_W3GS_GAMEINFO( m_GHost->m_TFT, m_GHost->m_LANWar3Version, MapGameType, m_Map->GetMapGameFlags( ), m_Map->GetMapWidth( ), m_Map->GetMapHeight( ), m_GameName, m_DefaultOwner, GetTime( ) - m_CreationTime, m_Map->GetMapPath( ), m_Map->GetMapCRC( ), 12, 12, m_HostPort, FixedHostCounter, m_EntryKey ));
+ 			}
+ 		}
+ 
+@@ -2900,7 +2917,6 @@
+ 	}
+ 
+ 	// check if the new player's name is empty or too long
+-
+ 	if( joinPlayer->GetName( ).empty( ) || joinPlayer->GetName( ).size( ) > 15 )
+ 	{
+ 		CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with an invalid name of length " + UTIL_ToString( joinPlayer->GetName( ).size( ) ) );
+@@ -2909,8 +2925,27 @@
+ 		return;
+ 	}
+ 
++	// check if the new player's name is blacklisted
++	// if( IsBlacklisted(joinPlayer->GetName( )) || IsBannedname(joinPlayer->GetName( )) )
++	if( IsBlacklisted(joinPlayer->GetName( )))
++	{
++		CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with blacklisted name" );
++		potential->Send( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
++		potential->SetDeleteMe( true );
++		return;
++	}
++	
++	// check if the new player's name is invalid
++	if (m_GHost->m_RejectColoredName)
++	if (joinPlayer->GetName().find_first_of(" !\"|") != string::npos) {
++		CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with an invalid/colored name" );
++		SendAllChat( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with an invalid/colored name" );
++		potential->Send( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
++		potential->SetDeleteMe( true );
++		return;
++	}
++	
+ 	// check if the new player's name is the same as the virtual host name
+-
+ 	if( joinPlayer->GetName( ) == m_VirtualHostName )
+ 	{
+ 		CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "|" + potential->GetExternalIPString( ) + "] is trying to join the game with the virtual host name" );
+@@ -3010,7 +3045,7 @@
+ 		}
+ 	}
+ 
+-	bool Reserved = IsReserved( joinPlayer->GetName( ) ) || AdminCheck || IsOwner( joinPlayer->GetName( )) || SafeCheck;
++	bool Reserved = IsReserved( joinPlayer->GetName( ) ) || AdminCheck || joinPlayer->GetName( )==m_DefaultOwner || SafeCheck;
+ 
+ 	// check if the new player's name is banned
+ 	if (m_GHost->m_Banning != 0)
+@@ -3018,13 +3053,10 @@
+ 	if (!m_ScoreCheckChecked)
+ 	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+ 	{
+-		string BlacklistedName = joinPlayer->GetName( );
+-		transform( BlacklistedName.begin( ), BlacklistedName.end( ), BlacklistedName.begin( ), (int(*)(int))tolower );		
+-		CDBBan *Ban = (*i)->IsBannedName( BlacklistedName );
+-		CDBBan *Bann = (*i)->IsBannedName( joinPlayer->GetName( ) );
+-		if( Ban || Bann )
++		CDBBan *Ban = (*i)->IsBannedName( joinPlayer->GetName( ) );
++		if( Ban )
+ 		{
+-			if( JoinedRealm.size() < 3 ){
++			if( JoinedRealm.empty() || potential->GetExternalIPString()=="127.0.0.1" || potential->GetGarenaUser() ){
+ 				potential->Send( m_Protocol->SEND_W3GS_REJECTJOIN( REJECTJOIN_FULL ) );
+ 				potential->SetDeleteMe( true );
+ 				CONSOLE_Print( "[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) +"("+potential->GetExternalIPString()+")] is trying to join the game through LAN but is name banned" );
+@@ -3111,7 +3143,7 @@
+ 			for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+ 			{
+ 				CDBBan *IPBan = (*i)->IsBannedIP(potential->GetExternalIPString( ) );
+-				if( JoinedRealm.size() >= 3 )
++				if( !JoinedRealm.empty() )
+ 				if( IPBan )
+ 				{
+ 					string sReason = IPBan->GetReason();
+@@ -3179,7 +3211,7 @@
+ 			{
+ 				string EIP = potential->GetExternalIPString();
+ 				// kick if not garena, admin, rootadmin, reserver
+-				if (EIP!="127.0.0.1" && EIP!=m_GHost->m_ExternalIP && !IsOwner( joinPlayer->GetName( ) ) && !AdminCheck && !RootAdminCheck && !IsReserved (joinPlayer->GetName()))
++				if (!(EIP=="127.0.0.1" || EIP==m_GHost->m_ExternalIP || joinPlayer->GetName( )==m_DefaultOwner || AdminCheck || RootAdminCheck || IsReserved (joinPlayer->GetName()) || JoinedRealm.empty() || potential->GetGarenaUser() ))
+ 				{
+ 					// let banned players "join" the game with an arbitrary PID then immediately close the connection
+ 					// this causes them to be kicked back to the chat channel on battle.net
+@@ -3303,7 +3335,7 @@
+ 						}
+ 					}
+ 
+-// check if we're only allowing certain scores
++	// check if we're only allowing certain scores
+ 	if (!m_ScoreCheckChecked)
+ 	if(m_ScoreCheck && !Reserved && !m_Map->GetMapMatchMakingCategory( ).empty( ) && m_Map->GetMapGameType( ) == GAMETYPE_CUSTOM )
+ 	{
+@@ -3496,7 +3528,7 @@
+ 	}
+ 
+ 	// check if the owner joined and place him on the first slot.
+-	bool Owner = IsOwner( joinPlayer->GetName( ) );
++	bool Owner = joinPlayer->GetName( ) == m_DefaultOwner;
+ 
+ 	if( Owner )
+ 	{
+@@ -3954,13 +3986,15 @@
+ 			SendAdminChat(Player->GetName()+" - "+note);
+ 	}
+ 
+-	// check for multiple IP usage
+ 	string Room;
+ 	if (JoinedRealm.find("LAN") != string::npos || JoinedRealm.size() < 3 )
+ 		Room=potential->GetGaRoomName( );
+ 	else Room=".";
++	
+ 	SendAllChat( "Player [" + joinPlayer->GetName( ) + "] has joined from [" + ( JoinedRealm == string( ) ? "LAN" : JoinedRealm ) + "] "+ Room );
+ 	CONSOLE_Print("[GAME: " + m_GameName + "] player [" + joinPlayer->GetName( ) + "(" + Player->GetExternalIPString( ) + "|" + From + ")] has joined from [" + ( JoinedRealm == string( ) ? "LAN" : JoinedRealm ) + "] "+ Room );
++	
++	// check for multiple IP usage
+ 	if( m_GHost->m_CheckMultipleIPUsage )
+ 	{
+ 		string Others;
+@@ -4348,7 +4382,7 @@
+ 	for( vector<CBNET *> :: iterator i = m_GHost->m_BNETs.begin( ); i != m_GHost->m_BNETs.end( ); i++ )
+ 	{
+ 		CDBBan *IPBan = (*i)->IsBannedIP(Player->GetExternalIPString( ));
+-
++		if( !JoinedRealm.empty() )
+ 		if( IPBan )
+ 		{
+ 			string sReason = IPBan->GetReason();
+@@ -4398,7 +4432,7 @@
+ 	{
+ 		string EIP = Player->GetExternalIPString();
+ // kick if not garena, admin, rootadmin, reserver
+-		if (EIP!="127.0.0.1" && EIP!=m_GHost->m_ExternalIP && !IsOwner( Player->GetName( ) ) && !AdminCheck && !RootAdminCheck && !IsReserved (Player->GetName()))
++		if (!(EIP=="127.0.0.1" || EIP==m_GHost->m_ExternalIP || joinPlayer->GetName( )==m_DefaultOwner || AdminCheck || RootAdminCheck || IsReserved (joinPlayer->GetName()) || JoinedRealm.empty() || potential->GetGarenaUser() ))
+ 		{
+ 			Player->SetDeleteMe( true );
+ 			Player->SetLeftReason( "was autokicked, GArena only");
+@@ -6066,7 +6100,9 @@
+ 			float Rate = (float)MapSize / 1024 / Seconds;
+ 			if ( m_GHost->m_DLRateLimit !=0 && (uint32_t)Rate < m_GHost->m_DLRateLimit ){
+ 				SendAllChat( m_GHost->m_Language->KickMsgForSlowDL( player->GetName( ) ) );
+-				m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetJoinedRealm( ), player->GetName( ), player->GetExternalIPString(), m_GameName, "AUTOBAN", "Slow internet", 1, 0 ));	
++				m_GHost->m_Callables.push_back( m_GHost->m_DB->ThreadedBanAdd( player->GetJoinedRealm( ), player->GetName( ), player->GetExternalIPString(), m_GameName, "AUTOBAN", "Slow internet", 1, 0 ));
++				if (m_GHost->m_BlacklistSlowDLder)
++					m_GHost->m_BlacklistedNames +=" "+player->GetName( );
+ 				player->SetDeleteMe( true );
+ 				player->SetLeftReason( "kicked for downloading too slowly" );
+ 				player->SetLeftCode( PLAYERLEAVE_LOBBY );
+@@ -8175,6 +8211,54 @@
+ 			(*i)->SetReserved( false );
+ 	}
+ }
++bool CBaseGame :: IsBannedname( string name )
++{
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
++	{
++		if( (*i)->GetName( ) == name )
++			return true;
++	}
++	return false;
++}
++bool CBaseGame :: IsBlacklisted( string name )
++{
++	string blacklist = m_GHost->m_BlacklistedNames;
++	transform( blacklist.begin( ), blacklist.end( ), blacklist.begin( ), (int(*)(int))tolower );
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );	
++	stringstream SS;
++	string s;
++	SS << blacklist;
++	while( !SS.eof( ) )
++	{
++		SS >> s;
++		if (name == s)
++		{
++			return true;
++		}
++	}
++	return false;
++}
++void CBaseGame :: DelBlacklistedName( string name )
++{
++	string blacklist = m_GHost->m_BlacklistedNames;
++	transform( blacklist.begin( ), blacklist.end( ), blacklist.begin( ), (int(*)(int))tolower );
++	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
++	stringstream SS;
++	string tusers="";
++	string luser;
++	SS << blacklist;
++	while( !SS.eof( ) )
++	{
++		SS >> luser;
++		if (luser != name)
++		if (tusers.length()==0)
++			tusers = luser;
++		else
++			tusers +=" "+luser;
++	}
++	m_GHost->m_BlacklistedNames = tusers;
++}
+ bool CBaseGame :: IsOwner( string name )
+ {
+ 	string OwnerLower = m_OwnerName;
+Index: ghost.cpp
+===================================================================
+--- ghost.cpp	(revision 93)
++++ ghost.cpp	(working copy)
+@@ -947,7 +947,7 @@
+ 	m_Exiting = false;
+ 	m_ExitingNice = false;
+ 	m_Enabled = true;
+-	m_GHostVersion = "v1.49 GenModdedOne";
++	m_GHostVersion = "v1.50 GenModdedOne";
+ 	m_Version = "("+m_GHostVersion+")";
+ 	stringstream SS;
+ 	string istr = string();
+@@ -1355,7 +1355,23 @@
+ 			}
+ 		}
+ 	}
++	// update banlist
++	/* if( !m_GBCallableBanList && GetTime( ) >= m_LastBanRefreshTime + 600 )
++		m_GBCallableBanList = m_DB->ThreadedBanList( m_Server );
++	if( m_GBCallableBanList && m_GBCallableBanList->GetReady( ) && !m_BanListLoaded )
++	{
++		CONSOLE_Print( "[INFO] refreshed ban list (" + UTIL_ToString( m_BanList.size( ) ) + " -> " + UTIL_ToString( m_GBCallableBanList->GetResult( ).size( ) ) + " bans)" );
+ 
++		for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
++			delete *i;
++
++		m_BanList = m_GBCallableBanList->GetResult( );
++		m_DB->RecoverCallable( m_GBCallableBanList );
++		delete m_GBCallableBanList;
++		m_GBCallableBanList = NULL;
++		m_LastBanRefreshTime = GetTime( );
++		m_BanListLoaded = true;
++	}	*/
+ 	// update callables
+ 
+ 	for( vector<CBaseCallable *> :: iterator i = m_Callables.begin( ); i != m_Callables.end( ); )
+@@ -2249,6 +2265,7 @@
+ 	m_SaveReplays = CFG->GetInt( "bot_savereplays", 0 ) == 0 ? false : true;
+ 	m_ReplayPath = UTIL_AddPathSeperator( CFG->GetString( "bot_replaypath", string( ) ) );
+ 	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
++	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" );
+ 	m_HideIPAddresses = CFG->GetInt( "bot_hideipaddresses", 0 ) == 0 ? false : true;
+ 	m_CheckMultipleIPUsage = CFG->GetInt( "bot_checkmultipleipusage", 1 ) == 0 ? false : true;
+ 
+@@ -2293,6 +2310,9 @@
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+ 	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
++	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
++	m_RejectColoredName = CFG->GetInt( "bot_rejectcolorname", 0 ) == 0 ? false : true; //Gen
++	m_GarenaOnly = CFG->GetInt( "bot_garenaonly", 0 ) == 0 ? false : true; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_Latency = CFG->GetInt( "bot_latency", 100 );
+@@ -4061,6 +4081,9 @@
+ 	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+ 	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+ 	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
++	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
++	m_RejectColoredName = CFG->GetInt( "bot_rejectcolorname", 0 ) == 0 ? false : true; //Gen
++	m_GarenaOnly = CFG->GetInt( "bot_garenaonly", 0 ) == 0 ? false : true; //Gen
+ 	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+ 	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+ 	m_LobbyTimeLimitMax = CFG->GetInt( "bot_lobbytimelimitmax", 150 );
+@@ -4160,9 +4183,10 @@
+ 	m_PlayersfromRMK = string();
+ 	m_dropifdesync = CFG->GetInt( "bot_dropifdesync", 1 ) == 0 ? false : true; //Metal_Koola
+ 	m_UDPPassword = CFG->GetString( "bot_udppassword", string () );
+-	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF483D8BOne" );
++	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
+ 	if (m_VirtualHostName.length()>15)
+ 		m_VirtualHostName=m_VirtualHostName.substr(0,15);
++	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" );
+ 	m_DropVoteTime = CFG->GetInt( "bot_dropvotetime", 30 );
+ 	m_IPBanning = CFG->GetInt( "bot_ipbanning", 2 );
+ 	m_Banning = CFG->GetInt( "bot_banning", 1 );

@@ -1,0 +1,16 @@
+(\__/)    Welcome to Gen host
+(='.'=)    Professional Hosting 
+('')_('')    & Gaming Experience
+                At TheGenMaps.Tk
+                
+    COMMANDS: 
+        .go(=.ready),.wim,.votestart,.votekick
+        .sc,.c,.f,.p,.help,.rule,.rmk
+                
+    .OWNER COMMANDS:
+        .a (=.abort),.as (autostart), .startn
+        .swap,.open, .close
+        .closeall, .openall,
+        .holds,.hold,.unhold,
+        FakePlayer: .fp , .df, .dfs
+        Observer: .obsplayer
