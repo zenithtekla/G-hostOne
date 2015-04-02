@@ -1,0 +1,252 @@
+10
+
+dir
+0
+https://ghostone.googlecode.com/svn/trunk/GProxyOne/bncsutil/src/bncsutil
+https://ghostone.googlecode.com/svn
+add
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+d0220f26-5976-11de-bc7c-c9df4fa8b3c6
+
+bsha1.cpp
+file
+
+
+
+add
+
+mutil.h
+file
+
+
+
+add
+
+oldauth.cpp
+file
+
+
+
+add
+
+decodekey.h
+file
+
+
+
+add
+
+sha1.h
+file
+
+
+
+add
+
+stack.c
+file
+
+
+
+add
+
+stack.h
+file
+
+
+
+add
+
+file.cpp
+file
+
+
+
+add
+
+libinfo.cpp
+file
+
+
+
+add
+
+cdkeydecoder.cpp
+file
+
+
+
+add
+
+debug.c
+file
+
+
+
+add
+
+bncsutil.h
+file
+
+
+
+add
+
+keytables.h
+file
+
+
+
+add
+
+debug.h
+file
+
+
+
+add
+
+decodekey.cpp
+file
+
+
+
+add
+
+nls.c
+file
+
+
+
+add
+
+Makefile
+file
+
+
+
+add
+
+nls.h
+file
+
+
+
+add
+
+checkrevision.h
+file
+
+
+
+add
+
+bsha1.h
+file
+
+
+
+add
+
+pe.c
+file
+
+
+
+add
+
+oldauth.h
+file
+
+
+
+add
+
+pe.h
+file
+
+
+
+add
+
+ms_stdint.h
+file
+
+
+
+add
+
+buffer.h
+file
+
+
+
+add
+
+mutil_types.h
+file
+
+
+
+add
+
+file.h
+file
+
+
+
+add
+
+libinfo.h
+file
+
+
+
+add
+
+gmp.h
+file
+
+
+
+add
+
+cdkeydecoder.h
+file
+
+
+
+add
+
+checkrevision.cpp
+file
+
+
+
+add
+
+sha1.c
+file
+
+
+
+add
+
