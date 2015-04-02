@@ -454,3 +454,7 @@ vector<string> CStatsW3MMD :: TokenizeKey( string key )
 	Tokens.push_back( Token );
 	return Tokens;
 }
+void CStatsW3MMD :: SetWinner(int winner)
+{
+
+}

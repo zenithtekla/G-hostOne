@@ -43,6 +43,7 @@ class CIncomingMapSize;
 class CCallableBanUpdate;
 class CCallableRunQuery;
 class CCallableScoreCheck;
+class CIncomingGarenaPlayer;
 class CCallableWarnCount;
 
 class CBaseGame
@@ -76,13 +77,19 @@ protected:
 	uint16_t m_HostPort;							// the port to host games on
 	unsigned char m_GameState;						// game state, public or private
 	unsigned char m_VirtualHostPID;					// virtual host's PID
-	unsigned char m_FakePlayerPID;					// the fake player's PID (if present)
+	unsigned char m_ObsPlayerPID;					// the obs player's PID (if present)
+	vector<unsigned char> m_FakePlayers;			// the fake player's PIDs (if present)	
 	unsigned char m_WTVPlayerPID;					// the WaaaghTV player's PID (if present)
 	unsigned char m_GProxyEmptyActions;
 	string m_GameName;								// game name
+	string m_LastGameName;							// last game name (the previous game name before it was rehosted)
 	string m_OriginalGameName;						// game name
 	string m_VirtualHostName;						// virtual host's name
 	string m_OwnerName;								// name of the player who owns this game (should be considered an admin)
+	string m_DefaultOwner;							// name of the player who wrote !owner or is given owner right by other in LOBBY only(should be considered as a TEMPORARY admin)
+	string m_DefaultOwnerLower;						// in lower case
+	string m_AdminName;								// name of the admin player who set !adminlock
+	string m_BannedNames;							// name of the player who was just banned
 	string m_CreatorName;							// name of the player who created this game
 	string m_CreatorServer;							// battle.net server the player who created this game was on
 	string m_AnnounceMessage;						// a message to be sent every m_AnnounceInterval seconds
@@ -92,6 +99,7 @@ protected:
 	string m_HCLCommandString;						// the "HostBot Command Library" command string, used to pass a limited amount of data to specially designed maps
 	uint32_t m_RandomSeed;							// the random seed sent to the Warcraft III clients
 	uint32_t m_HostCounter;							// a unique game number
+	uint32_t m_EntryKey;							// random entry key for LAN, used to prove that a player is actually joining from LAN
 	uint32_t m_Latency;								// the number of ms to wait between sending action packets (we queue any received during this time)
 	uint32_t m_DynamicLatency;
 	uint32_t m_LastDynamicLatencyTicks;
@@ -125,8 +133,10 @@ protected:
 	uint32_t m_LastReservedSeen;					// GetTime when the last reserved player was seen in the lobby
 	uint32_t m_StartedRmkVoteTime;					// GetTime when the rmk vote was started
 	uint32_t m_StartedKickVoteTime;					// GetTime when the kick vote was started
+	uint32_t m_StartedVoteStartTime;// GetTime when the votestart was started
 	uint32_t m_GameOverTime;						// GetTime when the game was over
 	uint32_t m_LastPlayerLeaveTicks;				// GetTicks when the most recent player left the game
+	uint32_t m_ActualyPrintPlayerWaitingStartDelay; // Counts the number of checks before the waiting for x players before start get printed again
 	double m_MinimumScore;							// the minimum allowed score for matchmaking mode
 	double m_MaximumScore;							// the maximum allowed score for matchmaking mode
 	bool m_SlotInfoChanged;							// if the slot info has changed and hasn't been sent to the players yet (optimization)
@@ -151,11 +161,15 @@ protected:
 	bool m_GameEnded;
 	uint32_t m_GameEndedTime;
 	bool m_Locked;									// if the game owner is the only one allowed to run game commands or not
+	bool m_NoTempOwner;								// if the admin disallows tempowner
 	bool m_RefreshMessages;							// if we should display "game refreshed..." messages or not
 	bool m_RefreshError;							// if there was an error refreshing the game
+	bool m_RefreshRehosted;							// if we just rehosted and are waiting for confirmation that it was successful
 	bool m_MuteAll;									// if we should stop forwarding ingame chat messages targeted for all players or not
 	bool m_MuteLobby;								// if we should stop forwarding lobby chat messages
 	bool m_CountDownStarted;						// if the game start countdown has started or not
+	bool m_StartVoteStarted;
+//	bool m_UnhostAllow;
 //	bool m_GameLoading;								// if the game is currently loading or not
 	bool m_GameLoaded;								// if the game has loaded or not
 	bool m_LoadInGame;								// if the load-in-game feature is enabled or not
@@ -164,15 +178,31 @@ protected:
 	bool m_AutoSave;								// if we should auto save the game before someone disconnects
 	bool m_MatchMaking;								// if matchmaking mode is enabled
 	bool m_LocalAdminMessages;						// if local admin messages should be relayed or not
+	bool m_FPEnable;
+	bool m_SquirrelText;
+	uint32_t m_MoreFPs;
+	uint32_t m_LastInfoShow;	
+	uint32_t m_LastGenInfoShow;
+	uint32_t m_LastOwnerInfoShow;
+	uint32_t m_LastFromInfoShow;
+	uint32_t m_LastRuleInfoShow;	
+	uint32_t m_LastGuideInfoShow;	
+	uint32_t m_LastAboutInfoShow;	
+	uint32_t m_LastFAQInfoShow;	
+	uint32_t m_LastBanRefreshTime;					// GetTime when the ban list was last refreshed from the database
+	CCallableBanList *m_GBCallableBanList;			// threaded database ban list in progress
+	uint32_t m_LastProcessedTicks;
 	bool m_DoAutoWarns;								// enable automated warns for early leavers
 
 public:
 	vector<CGamePlayer *> m_Players;			// vector of players
 	vector<CDBGamePlayer *> m_DBGamePlayers;	// vector of potential gameplayer data for the database
 	vector<CDBBan *> m_DBBans;					// vector of potential ban data for the database (see the Update function for more info, it's not as straightforward as you might think)
+	vector<CDBBan *> m_BanList;					// vector of cached bans
 	CDBBan * m_DBBanLast;						// last ban for the !banlast command - this is a pointer to one of the items in m_DBBans
 	vector<CGameSlot> m_Slots;					// vector of slots
 	vector<string> m_AutoBanTemp;
+	vector<string> m_AutoWarnTemp;
 	bool m_CreatorAsFriend;
 	bool m_GameLoading;								// if the game is currently loading or not
 	bool m_ShowRealSlotCount;
@@ -194,6 +224,7 @@ public:
 	uint32_t m_TeamDiff;						// Difference between teams (in players number)
 	unsigned char m_GameStateS;
 	bool m_BanOn;								// If we ban the player or not
+	bool m_WarnOn;								// If we warn the player or not
 	uint32_t m_PlayersLeft;						// Number of players that have left.
 	bool m_EvenPlayeredTeams;					// If the the teams are even playered or not
 	bool m_ProviderCheck;						// if we allow only some providers
@@ -203,6 +234,7 @@ public:
 	bool m_ScoreCheck;							// if we allow some scores only
 	bool m_ScoreCheckChecked;
 	double m_ScoreCheckScore;
+	uint32_t m_CountWarn;
 	uint32_t m_ScoreCheckRank;
 	bool m_GarenaOnly;							// only allow GArena
 	bool m_LocalOnly;							// only allow Local
@@ -261,6 +293,10 @@ public:
 	virtual unsigned char GetGameState( )			{ return m_GameState; }
 	virtual unsigned char GetGProxyEmptyActions( )	{ return m_GProxyEmptyActions; }
 	virtual string GetGameName( )					{ return m_GameName; }
+	virtual string GetBannedNames( )				{ return m_BannedNames; }
+	virtual void AddBannedNames( string name );	
+	virtual string GetMapName( );
+	virtual string GetLastGameName( )				{ return m_LastGameName; }
 	virtual void SetGameName( string nGameName)		{ m_GameName = nGameName; }
 	virtual void SetHostCounter( uint32_t nHostCounter)			{ m_HostCounter = nHostCounter; }
 	virtual void SetLastRefreshTime( uint32_t nLastRefreshTime)	{ m_LastRefreshTime = nLastRefreshTime; }
@@ -275,6 +311,7 @@ public:
 	virtual string GetVirtualHostName( )			{ return m_VirtualHostName; }
 	virtual string GetWTVPlayerName( )				{ return m_GHost->m_wtvPlayerName; }
 	virtual string GetOwnerName( )					{ return m_OwnerName; }
+	virtual string GetDefaultOwnerName( )			{ return m_DefaultOwner; }
 	virtual string GetCreatorName( )				{ return m_CreatorName; }
 	virtual string GetHCL( )						{ return m_HCLCommandString; }
 	virtual uint32_t GetCreationTime( )				{ return m_CreationTime; }
@@ -287,6 +324,7 @@ public:
 	virtual bool GetGameLoading( )					{ return m_GameLoading; }
 	virtual bool GetGameLoaded( )					{ return m_GameLoaded; }
 	virtual bool GetLagging( )						{ return m_Lagging; }
+	virtual uint32_t GetSyncCounter( )				{ return m_SyncCounter; }
 	virtual vector<CGamePlayer*> GetPlayers ( ) 	{ return m_Players; }
 
 	virtual void SetEnforceSlots( vector<CGameSlot> nEnforceSlots )		{ m_EnforceSlots = nEnforceSlots; }
@@ -300,10 +338,22 @@ public:
 
 	virtual uint32_t GetNextTimedActionTicks( );
 	virtual uint32_t GetSlotsOccupied( );
+	virtual uint32_t GetNumSlotsT1( );
+	virtual uint32_t GetNumSlotsT2( );
+	virtual uint32_t GetSlotsOccupiedT1( );
+	virtual uint32_t GetSlotsOccupiedT2( );
 	virtual uint32_t GetSlotsOpen( );
+	virtual uint32_t GetSlotsOpenT1( );
+	virtual uint32_t GetSlotsOpenT2( );
+	virtual uint32_t GetSlotsClosed( );
 	virtual uint32_t GetNumPlayers( );
+	virtual uint32_t GetNumFakePlayers( );
+	virtual uint32_t GetWarnCount( string name );
+	virtual bool ObsPlayer( );
+	virtual bool DownloadInProgress( );
 	virtual uint32_t GetNumHumanPlayers( );
 	virtual string GetDescription( );
+	virtual string ShowSlotState( );
 
 	virtual void SetAnnounce( uint32_t interval, string message );
 
@@ -341,6 +391,7 @@ public:
 	virtual void SendAllSlotInfo( );
 	virtual void SendVirtualHostPlayerInfo( CGamePlayer *player );
 	virtual void SendFakePlayerInfo( CGamePlayer *player );
+	virtual void SendObservePlayerInfo( CGamePlayer *player );
 	virtual void SendWTVPlayerInfo( CGamePlayer *player );
 	virtual void SendAllActions( );
 	virtual void SendWelcomeMessage( CGamePlayer *player );
@@ -384,6 +435,7 @@ public:
 	virtual CGamePlayer *GetPlayerFromName( string name, bool sensitive );
 	virtual uint32_t GetPlayerFromNamePartial( string name, CGamePlayer **player );
 	virtual CGamePlayer *GetPlayerFromColour( unsigned char colour );
+	virtual string GetPlayerList( );
 	virtual unsigned char GetNewPID( );
 	virtual unsigned char GetNewColour( );
 	virtual BYTEARRAY GetPIDs( );
@@ -396,6 +448,8 @@ public:
 	virtual BYTEARRAY Silence(BYTEARRAY PIDs);
 	virtual unsigned char GetHostPID( );
 	virtual unsigned char GetEmptySlot( bool reserved );
+	virtual unsigned char GetEmptySlotForFakePlayers( );
+	virtual unsigned char GetEmptySlotForObsPlayer( );
 	virtual unsigned char GetEmptySlotAdmin( bool reserved );
 	virtual unsigned char GetEmptySlot( unsigned char team, unsigned char PID );
 	virtual void SwapSlots( unsigned char SID1, unsigned char SID2 );
@@ -411,11 +465,14 @@ public:
 	virtual void AddToSpoofed( string server, string name, bool sendMessage );
 	virtual void AddToReserved( string name, unsigned char nr );
 	virtual void DelFromReserved( string name );
+	virtual void DelTempOwner( string name );
+	virtual void DelBlacklistedName( string name );
 	virtual void AddGameName( string name);
 	virtual void AutoSetHCL ( );
 	virtual bool IsGameName( string name );
 //	virtual void AddToReserved( string name );
 	virtual bool IsOwner( string name );
+	virtual bool IsBlacklisted( string blacklist, string name );
 	virtual bool IsReserved( string name );
 	virtual bool IsDownloading( );
 	virtual bool IsGameDataSaved( );
@@ -424,10 +481,16 @@ public:
 	virtual void StartCountDownAuto( bool requireSpoofChecks );
 	virtual void StopPlayers( string reason );
 	virtual void StopLaggers( string reason );
+	virtual void StopLagger( string reason );
 	virtual void CreateVirtualHost( );
 	virtual void DeleteVirtualHost( );
 	virtual void CreateFakePlayer( );
+	virtual void CreateObsPlayer( bool check );
+//	virtual void CreateInitialFakePlayers( uint32_t m );
+	virtual void CreateInitialFakePlayers( );
 	virtual void DeleteFakePlayer( );
+	virtual void DeleteObsPlayer( );
+	virtual void DeleteAFakePlayer( );
 	virtual void CreateWTVPlayer( string name="Waaagh!TV", bool lobbyhost=false );
 	virtual void DeleteWTVPlayer( );
 	virtual bool IsMuted ( string name);
@@ -451,6 +514,7 @@ public:
 	virtual uint32_t DownloaderNr( string name );
 	virtual void SwapSlotsS( unsigned char SID1, unsigned char SID2 );
 	virtual bool IsAutoBanned( string name );
+	virtual bool IsAutoWarnned( string name );
 	virtual bool IsAdmin( string name );
 	virtual bool IsSafe( string name );
 	virtual string Voucher( string name );
@@ -462,6 +526,7 @@ public:
 	virtual string CustomReason( string reason, string name );
 	virtual string CustomReason( uint32_t ctime, string reason, string name);
 	virtual string GetGameInfo( );
+	virtual string GetCurrentTime( );
 	virtual void SetDynamicLatency( );
 
 };

@@ -49,6 +49,7 @@ CAdminGame :: CAdminGame( CGHost *nGHost, CMap *nMap, CSaveGame *nSaveGame, uint
 	m_VirtualHostName = "|cFFC04040Admin";
 	m_MuteLobby = true;
 	m_Password = nPassword;
+	m_EntryKey = 0;
 }
 
 CAdminGame :: ~CAdminGame( )
@@ -345,7 +346,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "addadmin" && !Payload.empty( ) )
 		{
 			// extract the name and the server
-			// e.g. "Varlock useast.battle.net" -> name: "Varlock", server: "useast.battle.net"
+			// e.g. "Varlock useast.battle.net" -> name: "Gen", server: "useast.battle.net"
 
 			string Name;
 			string Server;
@@ -445,8 +446,8 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 								GameName = GameName.substr( Start );
 
 							SendChat( player, m_GHost->m_Language->AutoHostEnabled( ) );
-							delete m_GHost->m_AutoHostMap;
-							m_GHost->m_AutoHostMap = new CMap( *m_GHost->m_Map );
+							m_GHost->ClearAutoHostMap( );
+							m_GHost->m_AutoHostMap.push_back( new CMap( *m_GHost->m_Map ) );
 							m_GHost->m_AutoHostGameName = GameName;
 							m_GHost->m_AutoHostOwner = User;
 							m_GHost->m_AutoHostServer.clear( );
@@ -528,8 +529,8 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 										GameName = GameName.substr( Start );
 
 									SendChat( player, m_GHost->m_Language->AutoHostEnabled( ) );
-									delete m_GHost->m_AutoHostMap;
-									m_GHost->m_AutoHostMap = new CMap( *m_GHost->m_Map );
+									m_GHost->ClearAutoHostMap( );
+									m_GHost->m_AutoHostMap.push_back( new CMap( *m_GHost->m_Map ) );
 									m_GHost->m_AutoHostGameName = GameName;
 									m_GHost->m_AutoHostOwner = User;
 									m_GHost->m_AutoHostServer.clear( );
@@ -554,7 +555,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "checkadmin" && !Payload.empty( ) )
 		{
 			// extract the name and the server
-			// e.g. "Varlock useast.battle.net" -> name: "Varlock", server: "useast.battle.net"
+			// e.g. "Varlock useast.battle.net" -> name: "Gen", server: "useast.battle.net"
 
 			string Name;
 			string Server;
@@ -609,7 +610,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "checkban" && !Payload.empty( ) )
 		{
 			// extract the name and the server
-			// e.g. "Varlock useast.battle.net" -> name: "Varlock", server: "useast.battle.net"
+			// e.g. "Varlock useast.battle.net" -> name: "Gen", server: "useast.battle.net"
 
 			string Name;
 			string Server;
@@ -695,7 +696,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "deladmin" && !Payload.empty( ) )
 		{
 			// extract the name and the server
-			// e.g. "Varlock useast.battle.net" -> name: "Varlock", server: "useast.battle.net"
+			// e.g. "Varlock useast.battle.net" -> name: "Gen", server: "useast.battle.net"
 
 			string Name;
 			string Server;
@@ -1182,7 +1183,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "privby" && !Payload.empty( ) )
 		{
 			// extract the owner and the game name
-			// e.g. "Varlock dota 6.54b arem ~~~" -> owner: "Varlock", game name: "dota 6.54b arem ~~~"
+			// e.g. "Varlock dota 6.54b arem ~~~" -> owner: "Gen", game name: "dota 6.54b arem ~~~"
 
 			string Owner;
 			string GameName;
@@ -1210,7 +1211,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "pubby" && !Payload.empty( ) )
 		{
 			// extract the owner and the game name
-			// e.g. "Varlock dota 6.54b arem ~~~" -> owner: "Varlock", game name: "dota 6.54b arem ~~~"
+			// e.g. "Varlock dota 6.54b arem ~~~" -> owner: "Gen", game name: "dota 6.54b arem ~~~"
 
 			string Owner;
 			string GameName;
@@ -1555,7 +1556,7 @@ bool CAdminGame :: EventPlayerBotCommand( CGamePlayer *player, string command, s
 		if( Command == "w" && !Payload.empty( ) )
 		{
 			// extract the name and the message
-			// e.g. "Varlock hello there!" -> name: "Varlock", message: "hello there!"
+			// e.g. "Varlock hello there!" -> name: "Gen", message: "hello there!"
 
 			string Name;
 			string Message;

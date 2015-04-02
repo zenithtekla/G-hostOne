@@ -213,6 +213,10 @@ uint32_t CGHostDB :: GameAdd( string server, string map, string gamename, string
 {
 	return 0;
 }
+string CGHostDB :: GameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add )
+{
+	return "";
+}
 
 uint32_t CGHostDB :: GamePlayerAdd( uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour )
 {
@@ -254,10 +258,27 @@ string CGHostDB :: FromCheck( uint32_t ip )
 	return "??";
 }
 
+string CGHostDB :: CountryCheck( uint32_t ip )
+{
+	return "";
+}
+
+string CGHostDB :: CountryCityCheck( uint32_t ip )
+{
+	return "";
+}
+
+string CGHostDB :: CityCheck( uint32_t ip )
+{
+	return "";
+}
+
 string CGHostDB :: WarnReasonsCheck( string user, uint32_t warn )
 {
 	return "??";
 }
+
+// bool CGHostDB :: FromAdd( uint32_t ip1, uint32_t ip2, string country, string countrylong, string city )
 bool CGHostDB :: FromAdd( uint32_t ip1, uint32_t ip2, string country )
 {
 	return false;
@@ -460,6 +481,10 @@ CCallableGameAdd *CGHostDB :: ThreadedGameAdd( string server, string map, string
 {
 	return NULL;
 }
+CCallableGameUpdate *CGHostDB :: ThreadedGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add )
+{
+return NULL;
+}
 
 CCallableGamePlayerAdd *CGHostDB :: ThreadedGamePlayerAdd( uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour )
 {
@@ -502,6 +527,11 @@ CCallableBanUpdate *CGHostDB :: ThreadedBanUpdate( string name, string ip )
 }
 
 CCallableRunQuery *CGHostDB :: ThreadedRunQuery( string query )
+{
+	return NULL;
+}
+
+CCallableStoreChat *CGHostDB :: ThreadedStoreChat( string message )
 {
 	return NULL;
 }
@@ -660,6 +690,10 @@ CCallableGameAdd :: ~CCallableGameAdd( )
 {
 
 }
+CCallableGameUpdate :: ~CCallableGameUpdate( )
+{
+
+}
 
 CCallableGamePlayerAdd :: ~CCallableGamePlayerAdd( )
 {
@@ -702,6 +736,11 @@ CCallableBanUpdate :: ~CCallableBanUpdate( )
 }
 
 CCallableRunQuery :: ~CCallableRunQuery( )
+{
+
+}
+
+CCallableStoreChat :: ~CCallableStoreChat( )
 {
 
 }

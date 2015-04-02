@@ -296,7 +296,38 @@ public:
 	string AddedPlayerToNoteList( string user);
 	string ChangedPlayerNote( string user);
 	string RemovedPlayerFromNoteList( string user);
-
+	string PlayerNeedsToReady( string user, string trigger );
+	string EverybodyIsReady( string user, string trigger );
+	string PlayerIsReady( string user, string trigger );
+	string EverybodyIsReadyToStartGame( );
+	string WimAdvise( string trigger );
+	string ReadyState( string vote, string player, string voteneed );
+	string RdyState( string vote, string trigger );
+	string BothTeamsMustHaveAPlayer( );
+	string SomeOneJustLeft( );
+	string FeatureBlocked( );
+	string OwnerForLobbyControl( string trigger );
+	string Publicity( string web, string groupid );
+	string AdviseToStartGameWithOwnerRight( string trigger );
+	string AdviseWhenLobbyFull( string trigger );
+	string AtLeastXPlayersToStartGame( string num );
+	string TeamImba( string trigger );
+	string CallingGen( );
+	string CommandDisabled( );
+	string NoAdminKick( );
+	string DoDFInstead( string trigger );
+	string UnableToCommand( string trigger );
+	string CommandHelp( string trigger );
+	string OwnerCommandDisabled( );
+	string AutoStartHigherValue( string num, string trigger);
+	string KickMsgForSlowDL( string name, string dlspeed, string dlquota );
+	string KickMsgForSpammer( string name );
+	string KickMsgForAbuser( string name );
+	string CheckIfOwnerEnabled( string trigger );
+	string AutoBanEnabled( string ban, string timer );
+	string FFResignAndWin( string loser, string winner );
+	string FFOath( string user );
+	string FFCounter( string team );
 };
 
 #endif

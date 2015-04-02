@@ -31,7 +31,6 @@ void ParseURL(char* url,char* protocol,int lprotocol, char* host,int lhost,char*
 bool ValidHostChar(char ch);
 
 // byte arrays
-
 BYTEARRAY UTIL_CreateByteArray( char *a, int size );
 BYTEARRAY UTIL_CreateByteArray( unsigned char *a, int size );
 BYTEARRAY UTIL_CreateByteArray( unsigned char c );

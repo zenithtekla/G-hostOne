@@ -39,6 +39,7 @@
 #include "game_base.h"
 #include "game.h"
 #include "game_admin.h"
+#include "gcbiprotocol.h"
 #include "bnetprotocol.h"
 
 #include <cstring>
@@ -125,6 +126,7 @@ string gLogFile;
 uint32_t gLogMethod;
 ofstream *gLog = NULL;
 CGHost *gGHost = NULL;
+
 
 #define WHATISMYIP "www.whatismyip.com"
 #define WHATISMYIP2 "whatismyip.oceanus.ro"
@@ -846,14 +848,17 @@ CGHost :: CGHost( CConfig *CFG )
 	m_UDPSocket->SetDontRoute( CFG->GetInt( "udp_dontroute", 0 ) == 0 ? false : true );
 	m_ReconnectSocket = NULL;
 	m_GPSProtocol = new CGPSProtocol( );
-
+	m_GCBIProtocol = new CGCBIProtocol( );
 	m_UDPConsole = CFG->GetInt( "bot_udpconsole", 1 ) == 0 ? false : true;
 	m_CRC = new CCRC32( );
 	m_CRC->Initialize( );
 	m_SHA = new CSHA1( );
 	m_CurrentGame = NULL;
+	m_CallableGameUpdate = NULL;
+
 	DBType = CFG->GetString( "db_type", "sqlite3" );
 	CONSOLE_Print( "[GHOST] opening primary database" );
+
 	if( DBType == "mysql" )
 	{
 #ifdef GHOST_MYSQL
@@ -897,6 +902,7 @@ CGHost :: CGHost( CConfig *CFG )
 			{
 				sockaddr_in *pAddress;
 				pAddress = (sockaddr_in *)&(InterfaceList[i].iiAddress);
+//				m_LocalIPs += " " + string( inet_ntoa( pAddress->sin_addr ) );
 				CONSOLE_Print( "[GHOST] local IP address #" + UTIL_ToString( i + 1 ) + " is [" + string( inet_ntoa( pAddress->sin_addr ) ) + "]" );
 				m_LocalAddresses.push_back( UTIL_CreateByteArray( (uint32_t)pAddress->sin_addr.s_addr, false ) );
 			}
@@ -924,6 +930,7 @@ CGHost :: CGHost( CConfig *CFG )
 			{
 				struct in_addr Address;
 				memcpy( &Address, HostEnt->h_addr_list[i], sizeof(struct in_addr) );
+//				m_LocalIPs += " " + string( inet_ntoa( Address ) );
 				CONSOLE_Print( "[GHOST] local IP address #" + UTIL_ToString( i + 1 ) + " is [" + string( inet_ntoa( Address ) ) + "]" );
 				m_LocalAddresses.push_back( UTIL_CreateByteArray( (uint32_t)Address.s_addr, false ) );
 			}
@@ -943,12 +950,12 @@ CGHost :: CGHost( CConfig *CFG )
 	m_Exiting = false;
 	m_ExitingNice = false;
 	m_Enabled = true;
-	m_GHostVersion = "17.0 One";
+	m_GHostVersion = "v1.54 GenBot";
 	m_Version = "("+m_GHostVersion+")";
 	stringstream SS;
 	string istr = string();
 	m_DisableReason = string();
-	m_RootAdmin = "One";
+	m_RootAdmin = string();
 	m_CookieOffset = GetPID() * 10;
 	m_CallableDownloadFile = NULL;
 	UTIL_ExtractStrings(CMD_string, m_Commands);
@@ -958,6 +965,8 @@ CGHost :: CGHost( CConfig *CFG )
 	m_AutoHostGameName = string();
 	m_AutoHostLocal = false;
 	m_AutoHostGArena = false;
+	m_ManualAutoHost = false;
+	m_RemakeGame = string();
 	m_AutoHostCountries = string();
 	m_AutoHostCountries2 = string();
 	m_AutoHostCountryCheck = false;
@@ -965,6 +974,7 @@ CGHost :: CGHost( CConfig *CFG )
 	m_AutoHostMaximumGames = 0;
 	m_AutoHostAutoStartPlayers = 0;
 	m_LastAutoHostTime = 0;
+	m_LastGameUpdateTime  = GetTime( );
 	m_AutoHostMatchMaking = false;
 	m_AutoHostMinimumScore = 0.0;
 	m_AutoHostMaximumScore = 0.0;
@@ -991,8 +1001,9 @@ CGHost :: CGHost( CConfig *CFG )
 	ReloadConfig();
 	// load the battle.net connections
 	// we're just loading the config data and creating the CBNET classes here, the connections are established later (in the Update function)
+	// for( uint32_t i = 1; i < 10; i++ )
 
-	for( uint32_t i = 1; i < 10; i++ )
+	for( uint32_t i = 1; i < 19; i++ )
 	{
 		string Prefix;
 
@@ -1023,7 +1034,7 @@ CGHost :: CGHost( CConfig *CFG )
 
 		string UserName = CFG->GetString( Prefix + "username", string( ) );
 		string UserPassword = CFG->GetString( Prefix + "password", string( ) );
-		string FirstChannel = CFG->GetString( Prefix + "firstchannel", "The Void" );
+		string FirstChannel = CFG->GetString( Prefix + "firstchannel", "Gen" );
 		string RootAdmin = CFG->GetString( Prefix + "rootadmin", string( ) );
 		if (!RootAdmin.empty())
 			m_RootAdmin = RootAdmin;
@@ -1047,7 +1058,7 @@ CGHost :: CGHost( CConfig *CFG )
 		string BNLSServer = CFG->GetString( Prefix + "bnlsserver", string( ) );
 		int BNLSPort = CFG->GetInt( Prefix + "bnlsport", 9367 );
 		int BNLSWardenCookie = i + m_CookieOffset;
-		unsigned char War3Version = CFG->GetInt( Prefix + "custom_war3version", 24 );
+		unsigned char War3Version = CFG->GetInt( Prefix + "custom_war3version", 26 );
 		BYTEARRAY EXEVersion = UTIL_ExtractNumbers( CFG->GetString( Prefix + "custom_exeversion", string( ) ), 4 );
 		BYTEARRAY EXEVersionHash = UTIL_ExtractNumbers( CFG->GetString( Prefix + "custom_exeversionhash", string( ) ), 4 );
 		string PasswordHashType = CFG->GetString( Prefix + "custom_passwordhashtype", string( ) );
@@ -1145,19 +1156,33 @@ CGHost :: CGHost( CConfig *CFG )
 		CONSOLE_Print( "[GHOST] using hardcoded admin game map" );
 		m_AdminMap = new CMap( this );
 	}
-
-	if( m_AutoHostMapCFG.size( ) < 4 || m_AutoHostMapCFG.substr( m_AutoHostMapCFG.size( ) - 4 ) != ".cfg" )
-	{
-		m_AutoHostMapCFG += ".cfg";
-		CONSOLE_Print( "[GHOST] adding \".cfg\" to autohost map -> new one is [" + m_AutoHostMapCFG + "]" );
-	}
-
-	CConfig AutohostMapCFG;
-	AutohostMapCFG.Read( m_AutoHostMapCFG );
+	
+	m_AutoHostMapManually = new CMap( *m_Map );
 		
-	m_AutoHostMap = new CMap( this, &AutohostMapCFG, m_AutoHostMapCFG );
-
-//	m_AutoHostMap = new CMap( *m_Map );
+	for( int i = 0; i < 100; i++)
+	{
+		string AutoHostMapCFGString = CFG->GetString( "autohost_map" + UTIL_ToString( i ) , string( ) );
+		
+		if( AutoHostMapCFGString.empty( ) )
+		{
+			continue;
+		}
+		
+    	if( AutoHostMapCFGString.size( ) < 4 || AutoHostMapCFGString.substr( AutoHostMapCFGString.size( ) - 4 ) != ".cfg" )
+		{
+			AutoHostMapCFGString += ".cfg";
+			CONSOLE_Print( "[GHOST] adding \".cfg\" to autohost game map -> new name is [" + AutoHostMapCFGString + "]" );
+			
+		}
+		
+		CConfig AutoHostMapCFG;
+		AutoHostMapCFG.Read( m_MapCFGPath + AutoHostMapCFGString );
+		CMap *AutoHostMap = new CMap( this, &AutoHostMapCFG, m_MapCFGPath + AutoHostMapCFGString );
+		m_AutoHostMap.push_back( new CMap( *AutoHostMap ) );
+	}
+	
+	m_AutoHostMapCounter = 0;
+	
 	m_SaveGame = new CSaveGame( );
 
 	// load the iptocountry data
@@ -1222,6 +1247,37 @@ CGHost :: CGHost( CConfig *CFG )
 #else
 	CONSOLE_Print( "[GHOST] GHost++ Version " + m_Version + " (without MySQL support)" );
 #endif
+// loading flametrigger
+	m_FlameTriggers.push_back("cunt");
+	m_FlameTriggers.push_back("bitch");
+	m_FlameTriggers.push_back("whore");
+	m_FlameTriggers.push_back("retard");
+	m_FlameTriggers.push_back("nigger");
+	m_FlameTriggers.push_back("dumb");
+	m_FlameTriggers.push_back("fuck you");
+	m_FlameTriggers.push_back("fuck ya");
+	m_FlameTriggers.push_back("fuck u");
+	m_FlameTriggers.push_back("you suck");
+	m_FlameTriggers.push_back("u suck");
+	m_FlameTriggers.push_back("fucking noob");
+	m_FlameTriggers.push_back("fuck off");
+	m_FlameTriggers.push_back("stupid");
+	m_FlameTriggers.push_back("noob as fuck");
+	m_FlameTriggers.push_back("idiot");
+	m_FlameTriggers.push_back("moron");
+	m_FlameTriggers.push_back("shithead");
+	m_FlameTriggers.push_back("dickhead");
+	m_FlameTriggers.push_back("assfuck");
+	m_FlameTriggers.push_back("asshole");
+	m_FlameTriggers.push_back("is shit");
+	m_FlameTriggers.push_back("are shit");
+	m_FlameTriggers.push_back("shitty");
+	m_FlameTriggers.push_back("pussy");
+	m_FlameTriggers.push_back("loser");
+	m_FlameTriggers.push_back("fucking bad");
+	m_FlameTriggers.push_back("faggot");
+	m_FlameTriggers.push_back("dick");
+	m_FlameTriggers.push_back("raizen");
 }
 
 CGHost :: ~CGHost( )
@@ -1238,6 +1294,7 @@ CGHost :: ~CGHost( )
 		delete *i;
 
 	delete m_GPSProtocol;
+	delete m_GCBIProtocol;
 	delete m_CRC;
 	delete m_SHA;
 
@@ -1263,7 +1320,8 @@ CGHost :: ~CGHost( )
 	delete m_Language;
 	delete m_Map;
 	delete m_AdminMap;
-	delete m_AutoHostMap;
+	delete m_AutoHostMapManually;
+	ClearAutoHostMap( );
 	delete m_SaveGame;
 }
 
@@ -1336,7 +1394,23 @@ bool CGHost :: Update( unsigned long usecBlock )
 			}
 		}
 	}
+	// update banlist
+	/* if( !m_GBCallableBanList && GetTime( ) >= m_LastBanRefreshTime + 600 )
+		m_GBCallableBanList = m_DB->ThreadedBanList( m_Server );
+	if( m_GBCallableBanList && m_GBCallableBanList->GetReady( ) && !m_BanListLoaded )
+	{
+		CONSOLE_Print( "[INFO] refreshed ban list (" + UTIL_ToString( m_BanList.size( ) ) + " -> " + UTIL_ToString( m_GBCallableBanList->GetResult( ).size( ) ) + " bans)" );
 
+		for( vector<CDBBan *> :: iterator i = m_BanList.begin( ); i != m_BanList.end( ); i++ )
+			delete *i;
+
+		m_BanList = m_GBCallableBanList->GetResult( );
+		m_DB->RecoverCallable( m_GBCallableBanList );
+		delete m_GBCallableBanList;
+		m_GBCallableBanList = NULL;
+		m_LastBanRefreshTime = GetTime( );
+		m_BanListLoaded = true;
+	}	*/
 	// update callables
 
 	for( vector<CBaseCallable *> :: iterator i = m_Callables.begin( ); i != m_Callables.end( ); )
@@ -1353,7 +1427,7 @@ bool CGHost :: Update( unsigned long usecBlock )
 
 	// create the GProxy++ reconnect listener
 
-	if( m_Reconnect )
+/*	if( m_Reconnect )
 	{
 		if( !m_ReconnectSocket )
 		{
@@ -1366,6 +1440,48 @@ bool CGHost :: Update( unsigned long usecBlock )
 				CONSOLE_Print( "[GHOST] error listening for GProxy++ reconnects on port " + UTIL_ToString( m_ReconnectPort ) );
 				delete m_ReconnectSocket;
 				m_ReconnectSocket = NULL;
+
+				m_Reconnect = false;
+			}
+		}
+		else if( m_ReconnectSocket->HasError( ) )
+		{
+			CONSOLE_Print( "[GHOST] GProxy++ reconnect listener error (" + m_ReconnectSocket->GetErrorString( ) + ")" );
+				delete m_ReconnectSocket;
+				m_ReconnectSocket = NULL;
+
+				m_Reconnect = false;
+		}
+	} 28022013 - code below from ENT bot */
+	
+	if( m_Reconnect )
+	{	
+		if( !m_ReconnectSocket )
+		{
+			bool Success = false;
+
+			for( unsigned int i = 0; i < 50; i++ )
+			{
+				m_ReconnectSocket = new CTCPServer( );
+
+				if( m_ReconnectSocket->Listen( m_BindAddress, m_ReconnectPort ) )
+				{
+					CONSOLE_Print( "[GHOST] listening for GProxy++ reconnects on port " + UTIL_ToString( m_ReconnectPort ) );
+					Success = true;
+					break;
+				}
+				else
+				{
+					CONSOLE_Print( "[GHOST] error listening for GProxy++ reconnects on port " + UTIL_ToString( m_ReconnectPort ) );
+					delete m_ReconnectSocket;
+					m_ReconnectSocket = NULL;
+					m_ReconnectPort++;
+				}
+			}
+
+			if( !Success )
+			{
+				CONSOLE_Print( "[GHOST] failed to listen for GProxy++ reconnects too many times, giving up" );
 				m_Reconnect = false;
 			}
 		}
@@ -1843,27 +1959,95 @@ bool CGHost :: Update( unsigned long usecBlock )
 		}
 
 	// autohost
-
-	if( !m_AutoHostGameName.empty( ) && m_AutoHostMaximumGames != 0 && m_AutoHostAutoStartPlayers != 0 && GetTime( ) - m_LastAutoHostTime >= 30 )
-	{
+	if( !m_AutoHostGameName.empty( ) && m_AutoHostMaximumGames != 0 && m_AutoHostAutoStartPlayers != 0 && GetTime( ) - m_LastAutoHostTime >= 12 )
+	{		
+		string tolog;
+		if(!m_ManualAutoHost)
+			m_AutoHostAutoStartPlayers = m_BotAutoStartPlayers;
+		
 		// copy all the checks from CGHost :: CreateGame here because we don't want to spam the chat when there's an error
-		// instead we fail silently and try again soon
-
-		if( !m_ExitingNice && m_Enabled && !m_CurrentGame && m_Games.size( ) < m_MaxGames && m_Games.size( ) < m_AutoHostMaximumGames )
+		// instead we fail silently and try again soon		
+		if( !m_ExitingNice && m_Enabled && !m_CurrentGame && m_Games.size( ) < m_MaxGames && m_Games.size( ) < m_AutoHostMaximumGames && !m_AutoHostMap.empty( ) )
 		{
-			if( m_AutoHostMap->GetValid( ) )
-			{
-				string GameName = m_AutoHostGameName + " #" + UTIL_ToString( m_HostCounter );
+			CMap *AutoHostMap;
+			
+			if(!m_ManualAutoHost){
+				tolog = "[GHOST] adding \".cfg\" to autohost game map -> new name is [";
+				if( m_AutoHostMapCounter >= m_AutoHostMap.size( ) )
+					m_AutoHostMapCounter = 0;									
 
-				if( GameName.size( ) <= 31 )
-				{
+				AutoHostMap =  m_AutoHostMap[m_AutoHostMapCounter];
+				
+				// overwrite if remake is requested
+				if ( !m_RemakeGame.empty() && m_CustomName ){
+					AutoHostMap = m_AutoHostMap[GetLastMapCFG(m_RemakeGame)];
+					m_RemakeGame.clear();
+				} else				
+					m_AutoHostMapCounter = ( m_AutoHostMapCounter + 1 ) % m_AutoHostMap.size( );
+			} else {
+				AutoHostMap = m_AutoHostMapManually;
+				tolog = "[GHOST] started to autohost game ("+UTIL_ToString(m_Games.size( ))+"/"+UTIL_ToString(m_AutoHostMaximumGames)+") [";
+			}
+			
+			if( AutoHostMap->GetValid( ) )
+			{				
+				string s = GetRehostChar( );
+				string GameName = " " + m_AutoHostGameName + " " + s[0] + UTIL_ToString( m_HostCounter );
+				string AutoHostMapStr = m_AutoHostGameName;				
+				
+				// overwrite if bot_cfgname is enabled and not any !autohost commands
+				if( !m_ManualAutoHost && m_CustomName ) {
+					string AutoHostMapCFGStr = AutoHostMap->GetCFGFile( );
+					string mapStr = AutoHostMapCFGStr.substr(AutoHostMapCFGStr.size( ) - 35,31);
+					int DPos = mapStr.find("mapcfgs");
+					if (DPos!= string ::npos)				
+					mapStr = mapStr.substr(DPos+8);
+					DPos = mapStr.find(") ");
+					if (DPos!= string ::npos)
+						mapStr = mapStr.substr(DPos+2);
+					else {
+						DPos = mapStr.find(")");
+						if (DPos!= string ::npos)
+							mapStr = mapStr.substr(DPos+1);
+					}
+					AutoHostMapStr = mapStr;
+					GameName = " " + AutoHostMapStr + " " + s[0] + UTIL_ToString( m_HostCounter );				
+				}
+				
+				if( GameName.size( ) > 27 || !m_AppleIcon )
+					GameName = GameName.substr(GameName.size( )-28);
+				if( GameName.size( ) <= 31 ) //don't name it  too long, only 29 characters + " $11" (4 plus caract�res)
+				{					
 					m_AutoHosted = true;
-					CreateGame( m_AutoHostMap, GAME_PUBLIC, false, GameName, m_AutoHostOwner, m_AutoHostOwner, m_AutoHostServer, false );
+					if ( m_NewOwner > 2 ) m_NewOwner = 1;					
+					if( m_AllowDownloads == 0 ) m_AllowDownloads = m_DefaultAllowDownloads;
+					CreateGame( AutoHostMap, GAME_PUBLIC, false, GameName, m_AutoHostOwner, m_AutoHostOwner, m_AutoHostServer, false );
+					CONSOLE_Print( tolog + AutoHostMapStr + "]" );
+					CONSOLE_Print( "[GHOST] GameName = [" + GameName + "]" );
+					
 					m_AutoHosted = false;
 
 					if( m_CurrentGame )
-					{
-						m_CurrentGame->SetAutoStartPlayers( m_AutoHostAutoStartPlayers );
+					{						
+						if ( !m_ObsPlayerName.empty() )
+							m_CurrentGame->CreateObsPlayer( m_ObsSpecificMaps );
+						
+						if (!m_ManualAutoHost){
+							if( m_AutoHostAutoStartPlayers > m_CurrentGame->GetNumHumanPlayers( ) + m_CurrentGame->GetSlotsOpen( ) )
+								m_AutoHostAutoStartPlayers = m_CurrentGame->GetNumHumanPlayers( ) + m_CurrentGame->GetSlotsOpen( ) ;
+								//fixed thanks to Gen's efforts & 0x6D48 & ukaf.b							
+							else m_AutoHostAutoStartPlayers = m_BotAutoStartPlayers;
+						}
+						
+						m_NumPlayersforAutoStart = m_AutoHostAutoStartPlayers;
+						
+						m_CurrentGame->SetAutoStartPlayers( m_AutoHostAutoStartPlayers ); //use m_AutoHostAutoStartPlayers as it's pre-defined in ghost.cfg by bot_autohostautostartplayers
+						//auto insert fake player(s)
+						
+						if (m_FakePlayersLobby)
+							m_CurrentGame->CreateInitialFakePlayers( );
+							
+						CONSOLE_Print( "[GHOST] will autostart game once " + UTIL_ToString(m_AutoHostAutoStartPlayers) + " players filled." );
 
 						if( m_AutoHostMatchMaking )
 						{
@@ -1900,7 +2084,7 @@ bool CGHost :: Update( unsigned long usecBlock )
 			}
 			else
 			{
-				CONSOLE_Print( "[GHOST] stopped auto hosting, map config file [" + m_AutoHostMap->GetCFGFile( ) + "] is invalid" );
+				CONSOLE_Print( "[GHOST] stopped auto hosting, map config file [" + AutoHostMap->GetCFGFile( ) + "] is invalid" );
 				m_AutoHostGameName.clear( );
 				m_AutoHostOwner.clear( );
 				m_AutoHostServer.clear( );
@@ -1914,7 +2098,32 @@ bool CGHost :: Update( unsigned long usecBlock )
 
 		m_LastAutoHostTime = GetTime( );
 	}
+    // update gamelist every 10 seconds
+	if( !m_CallableGameUpdate && GetTime() - m_LastGameUpdateTime >= 10) {
+   	uint32_t TotalGames = m_Games.size( );
+   	uint32_t TotalPlayers = 0;
+   	for( vector<CBaseGame *> :: iterator i = m_Games.begin( ); i != m_Games.end( ); ++i )
+   		TotalPlayers += (*i)->GetNumHumanPlayers( );
+   	
+       if(m_CurrentGame) {
+       	TotalGames++;
+       	TotalPlayers += m_CurrentGame->GetNumHumanPlayers( );
+       	
+           m_CallableGameUpdate = m_DB->ThreadedGameUpdate(m_CurrentGame->GetMapName(), m_CurrentGame->GetGameName(), m_CurrentGame->GetOwnerName(), m_CurrentGame->GetCreatorName(), m_CurrentGame->GetNumHumanPlayers(), m_CurrentGame->GetPlayerList( ), m_CurrentGame->GetSlotsOccupied() + m_CurrentGame->GetSlotsOpen(), TotalGames, TotalPlayers, true);
+       } else {
+           m_CallableGameUpdate = m_DB->ThreadedGameUpdate("", "", "", "", 0, "", 0, TotalGames, TotalPlayers, true);
+       }
 
+       m_LastGameUpdateTime = GetTime();
+   }
+
+   if( m_CallableGameUpdate && m_CallableGameUpdate->GetReady()) {
+       m_LastGameUpdateTime = GetTime();
+       m_DB->RecoverCallable( m_CallableGameUpdate );
+       delete m_CallableGameUpdate;
+       m_CallableGameUpdate = NULL;
+   }
+	
 	return m_Exiting || AdminExit || BNETExit;
 }
 
@@ -1955,9 +2164,12 @@ void CGHost :: EventBNETLoggedIn( CBNET *bnet )
 }
 
 void CGHost :: EventBNETGameRefreshed( CBNET *bnet )
-{
+{		
 	if(m_CurrentGame)
 	{
+		if ( m_RehostPrintingDelay <3 || m_RehostPrintingDelay == NULL )
+		m_RehostPrintingDelay = 4;
+		
 		m_LastGameName = m_CurrentGame->GetGameName();
 		if(m_CurrentGame->m_Rehost)
 		{
@@ -1967,7 +2179,16 @@ void CGHost :: EventBNETGameRefreshed( CBNET *bnet )
 			m_CurrentGame->m_Rehost = false;
 			CONSOLE_Print( "[GAME: " + m_CurrentGame->GetGameName() + "] rehost worked");
 			m_CurrentGame->m_LastPlayerJoinedTime = GetTime( );
-			m_CurrentGame->SendAllChat("Rehosted as \""+m_CurrentGame->GetGameName()+"\"");
+			
+			if(m_RehostPrintingDelay > m_ActualRehostPrintingDelay)
+			{			
+				m_ActualRehostPrintingDelay++;
+			}
+			else
+			{
+				m_ActualRehostPrintingDelay = 0 ;				
+				m_CurrentGame->SendAllChat("Rehosted as \""+m_CurrentGame->GetGameName()+"\"");
+			}			
 			UDPChatSend("|rehostw "+m_CurrentGame->GetGameName());
 		} else
 		{
@@ -2101,6 +2322,13 @@ void CGHost :: EventGameDeleted( CBaseGame *game )
 			(*i)->QueueChatCommand( m_Language->GameIsOver( game->GetDescription( ) ), game->GetCreatorName( ), true );
 	}
 }
+void CGHost :: ClearAutoHostMap( )
+{
+	for( vector<CMap *> :: iterator i = m_AutoHostMap.begin( ); i != m_AutoHostMap.end( ); ++i )
+		delete *i;
+	
+	m_AutoHostMap.clear( );
+}
 
 void CGHost :: ReloadConfigs( )
 {
@@ -2120,7 +2348,7 @@ void CGHost :: SetConfigs( CConfig *CFG )
 	m_Warcraft3Path = UTIL_AddPathSeperator( CFG->GetString( "bot_war3path", "C:\\Program Files\\Warcraft III\\" ) );
 	m_BindAddress = CFG->GetString( "bot_bindaddress", string( ) );
 	m_ReconnectWaitTime = CFG->GetInt( "bot_reconnectwaittime", 3 );
-	m_MaxGames = CFG->GetInt( "bot_maxgames", 5 );
+	m_MaxGames = CFG->GetInt( "bot_maxgames", 90 );
 	string BotCommandTrigger = CFG->GetString( "bot_commandtrigger", "!" );
 
 	if( BotCommandTrigger.empty( ) )
@@ -2132,33 +2360,73 @@ void CGHost :: SetConfigs( CConfig *CFG )
 	m_MapPath = UTIL_AddPathSeperator( CFG->GetString( "bot_mappath", string( ) ) );
 	m_SaveReplays = CFG->GetInt( "bot_savereplays", 0 ) == 0 ? false : true;
 	m_ReplayPath = UTIL_AddPathSeperator( CFG->GetString( "bot_replaypath", string( ) ) );
-	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF4080C0GHost" );
+	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
+	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" ); // Gen
+	m_ObsPlayerName = CFG->GetString( "bot_obsplayername", string() ); // Gen
+	m_UrOwnCommand = CFG->GetString( "bot_yourowncommand", string() ); // Gen
 	m_HideIPAddresses = CFG->GetInt( "bot_hideipaddresses", 0 ) == 0 ? false : true;
 	m_CheckMultipleIPUsage = CFG->GetInt( "bot_checkmultipleipusage", 1 ) == 0 ? false : true;
 
 	if( m_VirtualHostName.size( ) > 15 )
 	{
-		m_VirtualHostName = "|cFF4080C0GHost";
+		m_VirtualHostName = "|cFF0080C0GHost";
 		CONSOLE_Print( "[GHOST] warning - bot_virtualhostname is longer than 15 characters, using default virtual host name" );
 	}
 
 	m_SpoofChecks = CFG->GetInt( "bot_spoofchecks", 2 );
+	m_NewOwner = CFG->GetInt( "bot_tempownerinlobby", 0 );
 	m_RequireSpoofChecks = CFG->GetInt( "bot_requirespoofchecks", 0 ) == 0 ? false : true;
 	m_RefreshMessages = CFG->GetInt( "bot_refreshmessages", 0 ) == 0 ? false : true;
 	m_AutoLock = CFG->GetInt( "bot_autolock", 0 ) == 0 ? false : true;
 	m_AutoSave = CFG->GetInt( "bot_autosave", 0 ) == 0 ? false : true;
 	m_AllowDownloads = CFG->GetInt( "bot_allowdownloads", 0 );
+	m_DefaultAllowDownloads = m_AllowDownloads;
 	m_PingDuringDownloads = CFG->GetInt( "bot_pingduringdownloads", 0 ) == 0 ? false : true;
 	m_LCPings = CFG->GetInt( "bot_lcpings", 1 ) == 0 ? false : true;
-	m_AutoKickPing = CFG->GetInt( "bot_autokickping", 400 );
+	m_AutoKickPing = CFG->GetInt( "bot_autokickping", 1450 );
 	m_BanMethod = CFG->GetInt( "bot_banmethod", 1 );
 	m_IPBlackListFile = CFG->GetString( "bot_ipblacklistfile", "ipblacklist.txt" );
-	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 10 );
+	m_RehostPrintingDelay = CFG->GetInt( "bot_rehostprintingdelay", 5 );
+	m_BotAutoStartPlayers = CFG->GetInt( "bot_autohostautostartplayers", 8 );
+	m_CustomName = CFG->GetInt( "bot_cfgname", 0 ) == 0 ? false : true; //Gen
+	m_FakePlayersLobby = CFG->GetInt( "bot_fakeplayersinlobby", 0 ) == 1 ? true : false; //Gen
+	m_MoreFPsLobby = CFG->GetInt( "bot_morefakeplayersinlobby", 3 ); //Gen
+	m_DenyPatchEnable = CFG->GetInt( "bot_denypatchonjoin", 1 ) == 1 ? true : false; //Gen
+	m_CityPatch = CFG->GetInt( "bot_citypatch", 1 ) == 1 ? true : false; //Gen
+	m_ObsPlayerImmunity = CFG->GetInt( "bot_obsplayerimmune", 1 ) == 1 ? true : false; //Gen
+	m_AppleIcon = CFG->GetInt( "bot_appleicon", 0 ) == 1 ? true : false; //Gen
+	m_PrefixName = CFG->GetInt( "bot_realmprefixname", 0 ) == 1 ? true : false; //Gen
+	m_SquirrelTxt = CFG->GetInt( "bot_squirreltxt", 0 ) == 0 ? false : true; //Gen
+	m_FixedSlots = CFG->GetInt( "bot_fixedslots", 0 ) == 0 ? false : true; //Gen
+	m_InvalidTriggers = CFG->GetString( "bot_invalidtriggers", string( ) ); //Gen
+	m_InvalidReplayChars = CFG->GetString( "bot_invalidreplaychars", string( ) ); //Gen
+	m_RehostChar = CFG->GetString( "bot_rehostchar", string( ) ); //Gen
+//	m_OwnerNameAlias = CFG->GetString( "bot_ownernamealias", string( ) ); //Gen
+	m_ReplaysByName = CFG->GetInt( "bot_replayssavedbyname", 0 ) == 1 ? true : false; //Gen
+	m_NoDelMap = CFG->GetInt( "bot_disallowdelmapbyroot", 0 ) == 0 ? false : true; //Gen
+	m_NoDLMap = CFG->GetInt( "bot_disallowdlmapbyroot", 0 ) == 0 ? false : true; //Gen
+	m_NoMapDLfromEpicwar = CFG->GetInt( "bot_neverdlmapfromepicwar", 0 ) == 0 ? false : true; //Gen
+	m_OnlyMapDLfromHive = CFG->GetInt( "bot_onlydlmapfromhive", 0 ) == 0 ? false : true; //Gen
+	m_StartGameWhenAtLeastXPlayers = CFG->GetInt( "bot_gamenotstartuntilXplayers", 4 ); //Gen
+	m_BnetNonAdminCommands = CFG->GetInt( "bot_bnetnonadmincommands", 1 ); //Gen
+	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
+	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
+	m_RejectColoredName = CFG->GetInt( "bot_rejectcolorname", 0 ) == 0 ? false : true; //Gen
+	m_ObsSpecificMaps = CFG->GetInt( "bot_obsspecificmaps", 1 ) == 0 ? false : true; //Gen
+	m_GarenaOnly = CFG->GetInt( "bot_garenaonly", 0 ) == 0 ? false : true; //Gen
+	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
 	m_Latency = CFG->GetInt( "bot_latency", 100 );
 	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
 	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
+	m_VoteStartAllowed = CFG->GetInt( "bot_votestartallowed", 1 ) == 0 ? false : true;
+	m_VoteStartAutohostOnly = CFG->GetInt( "bot_votestartautohostonly", 1 ) == 0 ? false : true;
+	m_VoteStartMinPlayers = CFG->GetInt( "bot_votestartplayers", 6 );
 	m_VoteKickPercentage = CFG->GetInt( "bot_votekickpercentage", 100 );
-
+	if ( m_VoteStartMinPlayers < 3)
+		m_VoteStartMinPlayers = 4;
 	if( m_VoteKickPercentage > 100 )
 	{
 		m_VoteKickPercentage = 100;
@@ -2172,6 +2440,20 @@ void CGHost :: SetConfigs( CConfig *CFG )
 	m_TCPNoDelay = CFG->GetInt( "tcp_nodelay", 0 ) == 0 ? false : true;
 	m_dropifdesync = CFG->GetInt( "bot_dropifdesync", 1 ) == 0 ? false : true; //Metal_Koola
 	m_MatchMakingMethod = CFG->GetInt( "bot_matchmakingmethod", 1 );
+	m_MapGameType = CFG->GetUInt( "bot_mapgametype", 0 );
+	// deny patch variables
+	m_DenyMaxDownloadTime = CFG->GetInt( "deny_maxdownloadtime", 90000 );
+	m_DenyMaxMapsizeTime = CFG->GetInt( "deny_maxmapsizetime", 5000 );
+	m_DenyMaxReqjoinTime = CFG->GetInt( "deny_maxreqjointime", 5000 );
+	m_DenyMaxIPUsage = CFG->GetInt( "deny_maxipusage", 8 );
+	m_DenyMaxLoadTime = CFG->GetInt( "deny_maxloadtime", 240000 );
+	
+	m_DenyDownloadDuration = CFG->GetInt( "deny_downloadtimeduration", 20000 );
+	m_DenyMapsizeDuration = CFG->GetInt( "deny_mapsizeduration", 60000 );
+	m_DenyReqjoinDuration = CFG->GetInt( "deny_reqjoinduration", 60000 );
+	m_DenyIPUsageDuration = CFG->GetInt( "deny_ipusageduration", 10000 );
+	m_DenyLoadDuration = CFG->GetInt( "deny_loadduration", 180000 );
+	m_ActualRehostPrintingDelay = 0;		
 }
 
 void CGHost :: ExtractScripts( )
@@ -2313,6 +2595,8 @@ void CGHost :: LoadIPToCountryData( )
 			string IP1;
 			string IP2;
 			string Country;
+//			string CountryLong; //Gen
+//			string City; //Gen
 			CSVParser parser;
 
 			// get length of file for the progress meter
@@ -2334,6 +2618,9 @@ void CGHost :: LoadIPToCountryData( )
 				parser >> IP1;
 				parser >> IP2;
 				parser >> Country;
+//				parser >> CountryLong; //Gen
+//				parser >> City; //Gen
+//				m_DBLocal->FromAdd( UTIL_ToUInt32( IP1 ), UTIL_ToUInt32( IP2 ), Country, CountryLong, City );
 				m_DBLocal->FromAdd( UTIL_ToUInt32( IP1 ), UTIL_ToUInt32( IP2 ), Country );
 
 				// it's probably going to take awhile to load the iptocountry data (~10 seconds on my 3.2 GHz P4 when using SQLite3)
@@ -2628,6 +2915,30 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
 		if( (*i)->GetHoldClan( ) )
 			(*i)->HoldClan( m_CurrentGame );
 	}
+	   // update mysql current games list
+	if( m_CallableGameUpdate && m_CallableGameUpdate->GetReady()) {
+       m_DB->RecoverCallable( m_CallableGameUpdate );
+       delete m_CallableGameUpdate;
+       m_CallableGameUpdate = NULL;
+       m_LastGameUpdateTime = GetTime();
+	}
+
+	if(!m_CallableGameUpdate) {
+		uint32_t TotalGames = m_Games.size( ) + 1;
+		uint32_t TotalPlayers = 0;
+/*		string ownername = m_CurrentGame->GetOwnerName();
+		string creatorname = m_CurrentGame->GetCreatorName();
+		string defaultowner = m_CurrentGame->GetDefaultOwnerName( );
+		if (!m_OwnerNameAlias.empty()){
+			UTIL_Replace(ownername,defaultowner, m_OwnerNameAlias);
+			UTIL_Replace(creatorname,defaultowner, m_OwnerNameAlias);
+		}	*/
+		for( vector<CBaseGame *> :: iterator i = m_Games.begin( ); i != m_Games.end( ); ++i )
+			TotalPlayers += (*i)->GetNumHumanPlayers( );
+		
+		   m_CallableGameUpdate = m_DB->ThreadedGameUpdate(m_CurrentGame->GetMapName( ), m_CurrentGame->GetGameName(), m_CurrentGame->GetOwnerName(), m_CurrentGame->GetCreatorName(), m_CurrentGame->GetNumHumanPlayers(), m_CurrentGame->GetPlayerList( ), m_CurrentGame->GetSlotsOccupied() + m_CurrentGame->GetSlotsOpen(), TotalGames, TotalPlayers, true);
+		   m_LastGameUpdateTime = GetTime();
+	}
 
 	// WaaaghTV
 
@@ -2663,6 +2974,105 @@ void CGHost :: CreateGame( CMap *map, unsigned char gameState, bool saveGame, st
 	}
 #endif
 }
+// denyPatch Void CGhost
+void CGHost :: DenyIP( string ip, uint32_t duration, string reason )
+{
+//	if( IsLocal( ip ) ) return;
+	if ( ip == "127.0.0.1" || ip == "127.0.1.1" ) return;
+	
+	CONSOLE_Print( "[DENY] Denying connections from " + ip + " for " + UTIL_ToString( duration ) + " milliseconds: " + reason );
+	
+	// check to see if already in table
+	
+	if( m_DenyIP.count( ip ) == 0 )
+	{
+		DenyInfo Info;
+		Info.Time = GetTicks( );
+		Info.Duration = duration;
+		Info.Count = 0;
+		
+		m_DenyIP[ip] = Info;
+	}
+	
+	else
+	{
+		// only add if new ending time is greater than last ending time
+		if( duration >= m_DenyIP[ip].Duration || GetTicks( ) - m_DenyIP[ip].Time > m_DenyIP[ip].Duration - duration ) {
+			// increment deny count if necessary
+			if( GetTicks( ) - m_DenyIP[ip].Time < 60000 )
+			{
+				m_DenyIP[ip].Count++;
+				// uint32_t n = (ip == "127.0.0.1") ? 40 : 25;
+				if( m_DenyIP[ip].Count > 25 )
+				{
+					duration = (m_ExtendDeny>=120000) ? m_ExtendDeny : 900000;
+					CONSOLE_Print( "[DENY] Extending deny connections from " + ip + " for " + UTIL_ToString( duration ) + " milliseconds: due to high deny count " );
+					m_DenyIP[ip].Count = 0;
+				}
+			}
+			
+			else
+				m_DenyIP[ip].Count = 0;
+			
+			m_DenyIP[ip].Time = GetTicks( );
+			m_DenyIP[ip].Duration = duration;
+		}
+	}
+}
+
+bool CGHost :: CheckDeny( string ip ) {
+	if( !m_DenyPatchEnable )
+		return false;
+	if( m_DenyIP.count( ip ) == 0 )
+		return false;
+	else
+	{
+		if( GetTicks( ) - m_DenyIP[ip].Time < m_DenyIP[ip].Duration )
+			return true;
+		else
+		{
+			// delete stale entries only, so that we can use DenyCount properly
+			if( GetTicks( ) - m_DenyIP[ip].Time > 60000 + m_DenyIP[ip].Duration )
+			{
+				m_DenyIP.erase( ip );
+			}
+			
+			return false;
+		}
+	}
+}
+
+bool CGHost :: FlameCheck( string message )
+{
+	transform( message.begin( ), message.end( ), message.begin( ), (int(*)(int))tolower );
+	
+	for( size_t i = 0; i < m_FlameTriggers.size(); i++ )
+	{
+		if( message.find( m_FlameTriggers[i] ) != string :: npos )
+			return true;
+	}
+	
+	return false;
+}
+
+/* bool CGHost :: IsLocal( string ip )
+{
+	// multiple local IP's are space separated
+
+	stringstream SS;
+	string s;
+	SS << m_LocalIPs;
+
+	while( !SS.eof( ) )
+	{
+		SS >> s;
+
+		if( ip == s )
+		return true;
+	}
+
+	return false;
+} */
 
 void CGHost :: AdminGameMessage(string name, string message)
 {
@@ -2728,6 +3138,16 @@ void CGHost :: UDPCommands( string Message )
 	if (Command == "readwelcome")
 	{
 		ReadWelcome();
+	}
+	
+	if (Command == "readfp")
+	{
+		ReadFP();
+	}
+	
+	if (Command == "readroom")
+	{
+		ReadRoomData();
 	}
 
 	if (Command == "ping")
@@ -3123,7 +3543,7 @@ void CGHost :: UDPCommands( string Message )
 			uint32_t Matches = 0;
 			CDBBan *LastMatch = NULL;
 
-			// try to match each player with the passed string (e.g. "Varlock" would be matched with "lock")
+			// try to match each player with the passed string (e.g. "Gen" would be matched with "lock")
 			// we use the m_DBBans vector for this in case the player already left and thus isn't in the m_Players vector anymore
 
 			for( vector<CDBBan *> :: iterator i = Game->m_DBBans.begin( ); i != Game->m_DBBans.end( ); i++ )
@@ -3453,7 +3873,7 @@ void CGHost :: UDPCommands( string Message )
 		{
 			c = m_CurrentGame->m_Players.size();
 			t = m_CurrentGame->m_Slots.size();
-			bool dota = m_Map->GetMapType() == "dota";
+			bool dota = m_Map->GetMapType().find("dota") != string::npos;
 
 			Froms = "L "+UTIL_ToString(dota) +" "+UTIL_ToString(c)+" "+UTIL_ToString(t)+" ";
 			if (t>0)
@@ -3613,7 +4033,8 @@ void CGHost :: ReloadConfig ()
 		CONSOLE_Print("[WTV] WaaaghTV is not enabled.");
 	m_BindAddress = CFG->GetString( "bot_bindaddress", string( ) );
 	m_HostPort = CFG->GetInt( "bot_hostport", 6112 );
-	m_MaxGames = CFG->GetInt( "bot_maxgames", 5 );
+	m_BroadCastPort = CFG->GetInt( "bot_broadcastport", 6112 );
+	m_MaxGames = CFG->GetInt( "bot_maxgames", 90 );
 	string BotCommandTrigger = CFG->GetString( "bot_commandtrigger", "!" );
 
 	if( BotCommandTrigger.empty( ) )
@@ -3636,14 +4057,15 @@ void CGHost :: ReloadConfig ()
 	m_AutoLock = CFG->GetInt( "bot_autolock", 0 ) == 0 ? false : true;
 	m_AutoSave = CFG->GetInt( "bot_autosave", 0 ) == 0 ? false : true;
 	m_AllowDownloads = CFG->GetInt( "bot_allowdownloads", 0 );
+	m_DefaultAllowDownloads = m_AllowDownloads;
 	m_PingDuringDownloads = CFG->GetInt( "bot_pingduringdownloads", 0 ) == 0 ? false : true;
 	m_LCPings = CFG->GetInt( "bot_lcpings", 1 ) == 0 ? false : true;
-	m_AutoKickPing = CFG->GetInt( "bot_autokickping", 400 );
+	m_AutoKickPing = CFG->GetInt( "bot_autokickping", 1450 );
 	m_IPBlackListFile = CFG->GetString( "bot_ipblacklistfile", "ipblacklist.txt" );
 	m_ReconnectWaitTime = CFG->GetInt( "bot_reconnectwaittime", 3 );
 	m_ReplaceBanWithWarn = CFG->GetInt( "bot_replacebanwithwarn", 0 ) == 0 ? false : true;
-	m_BlueCanHCL = CFG->GetInt( "bot_bluecanhcl", 0 ) == 0 ? false : true;
-	m_BlueIsOwner = CFG->GetInt( "bot_blueisowner", 0 ) == 0 ? false : true;
+	m_BlueCanHCL = CFG->GetInt( "bot_bluecanhcl", 0 ) == 0 ? false : true;	
+	m_BlueIsOwner = CFG->GetInt( "bot_blueisowner", 0 ) == 0 ? false : true;	
 	m_NormalCountdown = CFG->GetInt( "bot_normalcountdown", 0 ) == 0 ? false : true;
 	m_DetourAllMessagesToAdmins = false;
 	m_UnbanRemovesChannelBans = CFG->GetInt( "bot_unbanremoveschannelban", 0 ) == 0 ? false : true;
@@ -3655,16 +4077,33 @@ void CGHost :: ReloadConfig ()
 	m_DynamicLatencyAddedToPing = CFG->GetInt( "bot_dynamiclatencyaddedtoping", 25 );
 	m_DynamicLatencyIncreasewhenLobby = CFG->GetInt( "bot_dynamiclatencyincreasewhenlobby", 1 ) == 0 ? false : true;
 	m_SyncLimit = CFG->GetInt( "bot_synclimit", 50 );
-	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;
+	m_VoteKickAllowed = CFG->GetInt( "bot_votekickallowed", 1 ) == 0 ? false : true;	
 	m_VoteKickPercentage = CFG->GetInt( "bot_votekickpercentage", 100 );
+	m_NewOwner = CFG->GetInt( "bot_tempownerinlobby", 0 );
+
+	m_VoteStartAllowed = CFG->GetInt( "bot_votestartallowed", 1 ) == 0 ? false : true;
+	m_VoteStartAutohostOnly = CFG->GetInt( "bot_votestartautohostonly", 1 ) == 0 ? false : true;
+	m_VoteStartMinPlayers = CFG->GetInt( "bot_votestartplayers", 6 );
+	if ( m_VoteStartMinPlayers < 3)
+		m_VoteStartMinPlayers = 4;
+	if( m_VoteKickPercentage > 100 )
+	{
+		m_VoteKickPercentage = 100;
+		CONSOLE_Print( "[GHOST] warning - bot_votekickpercentage is greater than 100, using 100 instead" );
+	}
 	m_LanAdmins = CFG->GetInt( "bot_lanadmins", 0 ) == 0 ? false : true;
+	m_AdminsOnLan = CFG->GetInt( "bot_adminsonlan", 1 ) == 1 ? true : false;
 	m_LanRootAdmins = CFG->GetInt( "bot_lanrootadmins", 0 ) == 0 ? false : true;
 	m_LocalAdmins = CFG->GetInt( "bot_localadmins", 0 ) == 0 ? false : true;
 	m_ForceLoadInGame = CFG->GetInt( "bot_forceloadingame", 0 ) == 0 ? false : true;
 	m_ShowRealSlotCount = CFG->GetInt( "lan_showrealslotcount", 0 ) == 0 ? false : true;
 	m_UpdateDotaEloAfterGame = CFG->GetInt( "bot_updatedotaeloaftergame", 0 ) == 0 ? false : true;
 	m_UpdateDotaScoreAfterGame = CFG->GetInt( "bot_updatedotascoreaftergame", 1 ) == 0 ? false : true;	
+	m_PlayerBeforeStartPrintDelay = CFG->GetInt( "bot_playerbeforestartprintdelay", 4 );
+	if ( m_PlayerBeforeStartPrintDelay < 3 )
+		m_PlayerBeforeStartPrintDelay = 3;	
 	m_AutoHostAutoStartPlayers = CFG->GetInt( "bot_autohostautostartplayers", 0 );
+	m_BotAutoStartPlayers = CFG->GetInt( "bot_autohostautostartplayers", 8 );
 	m_AutoHostAllowStart = CFG->GetInt( "bot_autohostallowstart", 0 ) == 0 ? false : true;
 	m_AutoHostLocal = CFG->GetInt( "bot_autohostlocal", 0 ) == 0 ? false : true;
 	m_AutoHostMaximumGames = CFG->GetInt( "bot_autohostmaximumgames", 0 );
@@ -3676,6 +4115,7 @@ void CGHost :: ReloadConfig ()
 		m_AutoHostCountryCheck = true;
 	m_AutoHostGameName = CFG->GetString( "bot_autohostgamename", string( ) );
 	m_AutoHostOwner = CFG->GetString( "bot_autohostowner", string( ) );
+//	m_LocalIPs = CFG->GetString( "bot_local", "127.0.0.1 127.0.1.1" );
 	m_AutoHostMapCFG = CFG->GetString( "bot_autohostmapcfg", string( ) );
 	if ((m_AutoHostMapCFG.find("\\")==string::npos) && (m_AutoHostMapCFG.find("/")==string::npos))
 		m_AutoHostMapCFG = m_MapCFGPath + m_AutoHostMapCFG;
@@ -3688,9 +4128,10 @@ void CGHost :: ReloadConfig ()
 	m_AutoBanFirstXLeavers = CFG->GetInt( "bot_autobanfirstxleavers", 0 );
 	m_AutoBanGameLoading = CFG->GetInt( "bot_autobangameloading", 0 ) == 0 ? false : true;
 	m_AutoBanCountDown = CFG->GetInt( "bot_autobancountdown", 0 ) == 0 ? false : true;
-	m_AutoBanGameEndMins = CFG->GetInt( "bot_autobangameendmins", 3 );	
+	m_AutoBanGameEndMins = CFG->GetInt( "bot_autobangameendmins", 3 );
 	if (m_AutoBanGameEndMins<1)
 		m_AutoBanGameEndMins = 1;
+	m_AutoWarnGameEndMins = CFG->GetInt( "bot_autowarngameendmins", 10 );
 	m_gamestateinhouse = CFG->GetInt( "bot_gamestateinhouse", 999 );
 	m_AdminsLimitedUnban = CFG->GetInt( "bot_adminslimitedunban", 0 ) == 0 ? false : true;
 	m_AdminsCantUnbanRootadminBans = CFG->GetInt( "bot_adminscantunbanrootadminbans", 0 ) == 0 ? false : true;
@@ -3705,7 +4146,7 @@ void CGHost :: ReloadConfig ()
 	ParseCensoredWords();
 	m_EndReq2ndTeamAccept = CFG->GetInt( "bot_endreq2ndteamaccept", 0 ) == 0 ? false : true;
 	m_HideBotFromNormalUsersInGArena = CFG->GetInt( "bot_hidebotfromnormalusersingarena", 1 ) == 0 ? false : true;
-	m_AutoRehostDelay = CFG->GetInt( "bot_autorehostdelay", 60 );
+	m_AutoRehostDelay = CFG->GetInt( "bot_autorehostdelay", 30 );
 	LoadHostCounter();
 	m_AllowedCountries = CFG->GetString( "bot_allowedcountries", string( ) );
 	transform( m_AllowedCountries.begin( ), m_AllowedCountries.end( ), m_AllowedCountries.begin( ), (int(*)(int))toupper );
@@ -3744,10 +4185,10 @@ void CGHost :: ReloadConfig ()
 	m_DB->SetFormula(m_ScoreFormula);
 	m_DB->SetMinGames(UTIL_ToUInt32(m_ScoreMinGames));
 
-	m_bnetpacketdelaymedium = CFG->GetString( "bot_bnetpacketdelaymedium", "3200" );
-	m_bnetpacketdelaybig = CFG->GetString( "bot_bnetpacketdelaybig", "4000" );
-	m_bnetpacketdelaymediumpvpgn = CFG->GetString( "bot_bnetpacketdelaymediumpvpgn", "2000" );
-	m_bnetpacketdelaybigpvpgn = CFG->GetString( "bot_bnetpacketdelaybigpvpgn", "2500" );
+	m_bnetpacketdelaymedium = CFG->GetString( "bot_bnetpacketdelaymedium", "6500" ); //GHostOne 3200, but changed to ENT bot
+	m_bnetpacketdelaybig = CFG->GetString( "bot_bnetpacketdelaybig", "7800" ); //GHostOne 4000
+	m_bnetpacketdelaymediumpvpgn = CFG->GetString( "bot_bnetpacketdelaymediumpvpgn", "5400" ); // 2000, changed for pvpgn by Gen 
+	m_bnetpacketdelaybigpvpgn = CFG->GetString( "bot_bnetpacketdelaybigpvpgn", "7500" ); // 2500
 
 	if( m_VoteKickPercentage > 100 )
 	{
@@ -3761,20 +4202,60 @@ void CGHost :: ReloadConfig ()
 	m_AdminGamePassword = CFG->GetString( "admingame_password", string( ) );
 	m_AdminGameMap = CFG->GetString( "admingame_map", string( ) );
 
-	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 10 );
-	m_LobbyTimeLimitMax = CFG->GetInt( "bot_lobbytimelimitmax", 15 );
-	m_LANWar3Version = CFG->GetInt( "lan_war3version", 24 );
+	m_RehostPrintingDelay = CFG->GetInt( "bot_rehostprintingdelay", 5 );
+	m_CustomName = CFG->GetInt( "bot_cfgname", 0 ) == 0 ? false : true; //Gen
+	m_FakePlayersLobby = CFG->GetInt( "bot_fakeplayersinlobby", 0 ) == 1 ? true : false; //Gen
+	m_MoreFPsLobby = CFG->GetInt( "bot_morefakeplayersinlobby", 3 ); //Gen
+	m_DenyPatchEnable = CFG->GetInt( "bot_denypatchonjoin", 1 ) == 1 ? true : false; //Gen
+	m_CityPatch = CFG->GetInt( "bot_citypatch", 1 ) == 1 ? true : false; //Gen
+	m_ObsPlayerImmunity = CFG->GetInt( "bot_obsplayerimmune", 1 ) == 1 ? true : false; //Gen
+	m_AppleIcon = CFG->GetInt( "bot_appleicon", 0 ) == 1 ? true : false; //Gen
+	m_PrefixName = CFG->GetInt( "bot_realmprefixname", 0 ) == 1 ? true : false; //Gen
+	m_SquirrelTxt = CFG->GetInt( "bot_squirreltxt", 0 ) == 0 ? false : true; //Gen
+	m_FixedSlots = CFG->GetInt( "bot_fixedslots", 0 ) == 0 ? false : true; //Gen
+	m_InvalidTriggers = CFG->GetString( "bot_invalidtriggers", string( ) ); //Gen
+	m_InvalidReplayChars = CFG->GetString( "bot_invalidreplaychars", string( ) ); //Gen
+	m_RehostChar = CFG->GetString( "bot_rehostchar", string( ) ); //Gen
+//	m_OwnerNameAlias = CFG->GetString( "bot_ownernamealias", string( ) ); //Gen
+	m_ReplaysByName = CFG->GetInt( "bot_replayssavedbyname", 0 ) == 1 ? true : false; //Gen
+	m_NoDelMap = CFG->GetInt( "bot_disallowdelmapbyroot", 0 ) == 0 ? false : true; //Gen
+	m_NoDLMap = CFG->GetInt( "bot_disallowdlmapbyroot", 0 ) == 0 ? false : true; //Gen
+	m_NoMapDLfromEpicwar = CFG->GetInt( "bot_neverdlmapfromepicwar", 0 ) == 0 ? false : true; //Gen
+	m_OnlyMapDLfromHive = CFG->GetInt( "bot_onlydlmapfromhive", 0 ) == 0 ? false : true; //Gen
+	m_OtherPort = CFG->GetInt( "bot_useportotherthan6112", 0 ) == 0 ? false : true; //Gen
+	m_DLRateLimit = CFG->GetInt( "bot_kickifdownloadrate", 0 );	//Gen
+	m_LogReduction = CFG->GetInt( "bot_logreduction", 0 ) == 0 ? false : true; //Gen
+	m_StartGameWhenAtLeastXPlayers = CFG->GetInt( "bot_gamenotstartuntilXplayers", 4 ); //Gen
+	m_BnetNonAdminCommands = CFG->GetInt( "bot_bnetnonadmincommands", 1 ); //Gen
+	m_RefreshDuration = CFG->GetInt( "bot_refresh", 0 ); //Gen
+	m_VietTxt = CFG->GetInt( "bot_viettxt", 0 ) == 0 ? false : true; //Gen
+	m_EnableUnhost = CFG->GetInt( "bot_disableunhost", 0 ) == 0 ? true : false; //Gen
+	m_BlacklistSlowDLder = CFG->GetInt( "bot_blacklistslowdownloader", 0 ) == 0 ? false : true; //Gen
+	m_RejectColoredName = CFG->GetInt( "bot_rejectcolorname", 0 ) == 0 ? false : true; //Gen
+	m_ObsSpecificMaps = CFG->GetInt( "bot_obsspecificmaps", 1 ) == 0 ? false : true; //Gen
+	m_GarenaOnly = CFG->GetInt( "bot_garenaonly", 0 ) == 0 ? false : true; //Gen
+	m_LobbyDLLeaverBanTime = CFG->GetInt( "bot_lobbyleaverbantime", 45 );	//Gen
+	m_GarenaLevelLimit = CFG->GetInt( "bot_garenalvllimit", 0 );	//Gen
+	m_LobbyTimeLimit = CFG->GetInt( "bot_lobbytimelimit", 111 );	
+	m_LobbyTimeLimitMax = CFG->GetInt( "bot_lobbytimelimitmax", 150 );
+	m_LANWar3Version = CFG->GetInt( "lan_war3version", 26 );
 	m_ReplayBuildNumber = CFG->GetInt( "replay_buildnumber", 6059 );
-	if (m_LANWar3Version == 23)
-	{
-		m_ReplayWar3Version = 23;
-		m_ReplayBuildNumber = 6058;
-	}
-	if (m_LANWar3Version == 24)
-	{
-		m_ReplayWar3Version = 24;
-		m_ReplayBuildNumber = 6059;
-	}
+	m_ReplayWar3Version = CFG->GetInt( "replay_war3version", 26);
+	
+	// deny patch variables
+	m_DenyMaxDownloadTime = CFG->GetInt( "deny_maxdownloadtime", 90000 );
+	m_DenyMaxMapsizeTime = CFG->GetInt( "deny_maxmapsizetime", 5000 );
+	m_DenyMaxReqjoinTime = CFG->GetInt( "deny_maxreqjointime", 5000 );
+	m_DenyMaxIPUsage = CFG->GetInt( "deny_maxipusage", 8 );
+	m_DenyMaxLoadTime = CFG->GetInt( "deny_maxloadtime", 240000 );
+	
+	m_DenyDownloadDuration = CFG->GetInt( "deny_downloadtimeduration", 20000 );
+	m_DenyMapsizeDuration = CFG->GetInt( "deny_mapsizeduration", 60000 );
+	m_DenyReqjoinDuration = CFG->GetInt( "deny_reqjoinduration", 60000 );
+	m_DenyIPUsageDuration = CFG->GetInt( "deny_ipusageduration", 10000 );
+	m_DenyLoadDuration = CFG->GetInt( "deny_loadduration", 180000 );
+	m_ExtendDeny = CFG->GetInt( "deny_extension", 600000 );
+
 	m_AutoStartDotaGames = CFG->GetInt( "bot_autostartdotagames", 0 ) == 0 ? false : true;
 	m_AllowedScores = CFG->GetInt( "bot_allowedscores", 0 );
 	m_AutoHostAllowedScores = CFG->GetInt( "bot_autohostallowedscores", 0 );
@@ -3828,11 +4309,12 @@ void CGHost :: ReloadConfig ()
 	m_gameoverbasefallen = CFG->GetInt( "bot_gameoverbasefallen", 20 );
 	m_gameoverminpercent = CFG->GetInt( "bot_gameoverminpercent", 0 );
 	m_gameoverminplayers = CFG->GetInt( "bot_gameoverminplayers", 2 );
+	m_gameoveroneplayer = CFG->GetInt( "bot_gameoverwhenoneplayer", 1 ) == 1 ? true : false;
 	m_gameovermaxteamdifference = CFG->GetInt( "bot_gameovermaxteamdifference", 0 );
-	m_totaldownloadspeed = CFG->GetInt( "bot_totaldownloadspeed", 1024 );
-	m_clientdownloadspeed = CFG->GetInt( "bot_clientdownloadspeed", 512 );
+	m_totaldownloadspeed = CFG->GetInt( "bot_totaldownloadspeed", 1536 );
+	m_clientdownloadspeed = CFG->GetInt( "bot_clientdownloadspeed", 1024 );
 	m_maxdownloaders = CFG->GetInt( "bot_maxdownloaders", 3 );
-	m_ShowDownloadsInfoTime = CFG->GetInt( "bot_showdownloadsinfotime", 3 );
+	m_ShowDownloadsInfoTime = CFG->GetInt( "bot_showdownloadsinfotime", 9 );
 	m_ShowDownloadsInfo = CFG->GetInt( "bot_showdownloadsinfo", 1 ) == 0 ? false : true;
 	m_ShowScoresOnJoin = CFG->GetInt( "bot_showscoresonjoin", 0 ) == 0 ? false : true;
 	m_ShowNotesOnJoin = CFG->GetInt( "bot_shownotesonjoin", 0 ) == 0 ? false : true;
@@ -3841,6 +4323,8 @@ void CGHost :: ReloadConfig ()
 	m_RehostIfNameTaken = CFG->GetInt( "bot_rehostifnametaken", 1 ) == 0 ? false : true;
 	m_RootAdmins = CFG->GetString( "bot_rootadmins", string () );
 	transform( m_RootAdmins.begin( ), m_RootAdmins.end( ), m_RootAdmins.begin( ), (int(*)(int))tolower );
+	m_AdminsWithUnhost = CFG->GetString( "bot_adminscanunhost", string () );
+	transform( m_AdminsWithUnhost.begin( ), m_AdminsWithUnhost.end( ), m_AdminsWithUnhost.begin( ), (int(*)(int))tolower );
 	m_FakePings = CFG->GetString( "bot_fakepings", string () );
 	transform( m_FakePings.begin( ), m_FakePings.end( ), m_FakePings.begin( ), (int(*)(int))tolower );
 	m_patch23 = CFG->GetInt( "bot_patch23ornewer", 1 ) == 0 ? false : true;
@@ -3850,9 +4334,12 @@ void CGHost :: ReloadConfig ()
 	m_PlayersfromRMK = string();
 	m_dropifdesync = CFG->GetInt( "bot_dropifdesync", 1 ) == 0 ? false : true; //Metal_Koola
 	m_UDPPassword = CFG->GetString( "bot_udppassword", string () );
-	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF483D8BOne" );
+	m_VirtualHostName = CFG->GetString( "bot_virtualhostname", "|cFF0080C0GHost" );
 	if (m_VirtualHostName.length()>15)
 		m_VirtualHostName=m_VirtualHostName.substr(0,15);
+	m_BlacklistedNames = CFG->GetString( "bot_blacklistednames", "|cFF0080C0Gen" ); // Gen
+	m_ObsPlayerName = CFG->GetString( "bot_obsplayername", string() ); // Gen
+	m_UrOwnCommand = CFG->GetString( "bot_yourowncommand", "aboutus" ); // Gen
 	m_DropVoteTime = CFG->GetInt( "bot_dropvotetime", 30 );
 	m_IPBanning = CFG->GetInt( "bot_ipbanning", 2 );
 	m_Banning = CFG->GetInt( "bot_banning", 1 );
@@ -3872,6 +4359,8 @@ void CGHost :: ReloadConfig ()
 	ReadWelcome();
 	ReadChannelWelcome();
 	ReadMars();
+	ReadRoomData();
+	ReadFP();
 }
 
 void CGHost :: ReadChannelWelcome ()
@@ -3980,6 +4469,115 @@ string CGHost :: GetMars ()
 
 	m_MarsLast.push_back(m_Mars[0]);
 	return m_Mars[0];
+}
+string CGHost :: GetFPName ()
+{
+	if (m_FPNames.size()==0)
+		return string();
+	bool ok = true;
+	// delete the oldest message
+	if (m_FPNamesLast.size()>=m_FPNames.size() || m_FPNamesLast.size()>15)
+	if (m_FPNamesLast.size()>0)
+		m_FPNamesLast.erase(m_FPNamesLast.begin());
+	do
+	{
+		ok = true;
+		random_shuffle( m_FPNames.begin( ), m_FPNames.end( ) );
+		for (uint32_t i = 0; i<m_FPNamesLast.size(); i++)
+		{
+			if (m_FPNamesLast[i]==m_FPNames[0])
+			{
+				ok = false;
+				break;
+			}
+		}
+	} while (!ok);
+
+	m_FPNames.push_back(m_FPNames[0]);
+	return m_FPNames[0];
+}
+string CGHost :: GetRehostChar( )
+{
+	if (!m_RehostChar.empty())
+		return m_RehostChar;
+	else return "#";
+}
+string CGHost :: GetRoomName (string RoomID)
+{
+	string s;
+	bool ok = false;
+	int l = RoomID.size();
+	int DPos;
+	if (m_LanRoomName.size()==0)
+		return s=string();
+	else if (l>4)
+		for (uint32_t i = 0; i<m_LanRoomName.size(); i++)
+			{
+				{
+					DPos = m_LanRoomName[i].find(RoomID);
+					if (DPos!= string ::npos){
+						ok = true;
+						return s=m_LanRoomName[i].substr(DPos+l+2);
+					}
+				}
+			}	
+	if (!ok)
+		return s=string(); //room matching that RoomID is not found
+	return s;
+}
+void CGHost :: ReadRoomData()
+{
+	string file = "rooms.txt";
+	ifstream in;
+	in.open( file.c_str( ) );
+	m_LanRoomName.clear();
+	if( in.fail( ) )
+		CONSOLE_Print( "[GHOST] warning - unable to read file [" + file + "]" );
+	else
+	{
+		CONSOLE_Print( "[GHOST] loading file [" + file + "]" );
+		string Line;
+
+		while( !in.eof( ) )
+		{
+			getline( in, Line );
+
+			// ignore blank lines and comments
+
+			if( Line.empty( ) || Line[0] == '#' )
+				continue;
+			m_LanRoomName.push_back(Line);
+		}
+	}
+	in.close( );
+	srand((unsigned)time(0));
+}
+void CGHost :: ReadFP()
+{
+	string file = "fpnames.txt";
+	ifstream in;
+	in.open( file.c_str( ) );
+	m_FPNames.clear();
+	if( in.fail( ) )
+		CONSOLE_Print( "[GHOST] warning - unable to read file [" + file + "]" );
+	else
+	{
+		CONSOLE_Print( "[GHOST] loading file [" + file + "]" );
+		string Line;
+
+		while( !in.eof( ) )
+		{
+			getline( in, Line );
+
+			// ignore blank lines and comments
+
+			if( Line.empty( ) || Line[0] == '#' )
+				continue;
+			m_FPNames.push_back(Line);
+		}
+	}
+	in.close( );
+	srand((unsigned)time(0));
 }
 
 void CGHost :: ReadMars ()
@@ -4247,6 +4845,24 @@ bool CGHost :: IsRootAdmin(string name)
 	return false;
 }
 
+bool CGHost :: IsAdminWithUnhost(string name)
+{
+	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
+	stringstream SS;
+	string s;
+	SS << m_AdminsWithUnhost;
+
+	while( !SS.eof( ) )
+	{
+		SS >> s;
+		if (name == s)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 void CGHost :: DelRootAdmin( string name)
 {
 	transform( name.begin( ), name.end( ), name.begin( ), (int(*)(int))tolower );
@@ -4280,6 +4896,33 @@ void CGHost :: AddRootAdmin(string name)
 uint32_t CGHost :: CMDAccessAddOwner (uint32_t acc)
 {
 	return acc | m_OwnerAccess;
+}
+
+uint32_t CGHost :: GetLastMapCFG ( string gamename )
+{
+	for( uint32_t i = 0; i < m_AutoHostMap.size( ); i++ ){
+		CMap *AutoHostMap =  m_AutoHostMap[i];
+		if( AutoHostMap->GetValid( ) ){
+			string AutoHostMapCFGStr = AutoHostMap->GetCFGFile( );
+			string AutoHostMapStr = AutoHostMapCFGStr.substr(AutoHostMapCFGStr.size( ) - 35,31);
+			int DPos = AutoHostMapStr.find("mapcfgs");
+			if (DPos!= string ::npos)				
+				AutoHostMapStr = AutoHostMapStr.substr(DPos+8);
+			DPos = AutoHostMapStr.find(") ");
+			if (DPos!= string ::npos)
+				AutoHostMapStr = AutoHostMapStr.substr(DPos+2);
+			else {
+				DPos = AutoHostMapStr.find(")");
+				if (DPos!= string ::npos)
+					AutoHostMapStr = AutoHostMapStr.substr(DPos+1);
+			}
+			if ( gamename.find(AutoHostMapStr) != string ::npos ){
+				return i;
+				CONSOLE_Print( "[GHost] apparently found previous game [" + AutoHostMapStr + "] for !rmk" );
+			}
+		}
+	}
+	return 1;
 }
 
 uint32_t CGHost :: CMDAccessDel (uint32_t access, uint32_t cmd)
@@ -4410,16 +5053,16 @@ string CGHost :: IncGameNr ( string name)
 {
 	string GameName = name;
 	string GameNr = string();
+	string s = GetRehostChar( );
 	bool found = false;
 	uint32_t idx = 0;
 	uint32_t id;
 	uint32_t Nr = 0;
-
 	idx = GameName.length()-1;
 	for (id = 7; id >=1; id-- )
 	{
 		if (idx>=id)
-			if (GameName.at(idx-id)=='#')
+			if (GameName.at(idx-id)==s[0])
 			{
 				idx = idx-id+1;
 				found = true;
@@ -4428,12 +5071,11 @@ string CGHost :: IncGameNr ( string name)
 	}
 	if (!found)
 		idx = 0;
-
 	// idx = 0, no Game Nr found in gamename
 	if (idx == 0)
 	{
 		GameNr = "0";
-		GameName = name + " #";
+		GameName = name + " " + s[0];
 	}
 	else
 	{
@@ -4448,7 +5090,9 @@ string CGHost :: IncGameNr ( string name)
 	if (Nr>m_MaxHostCounter)
 		Nr = 1;
 	GameNr = UTIL_ToString(Nr);
-	GameName = GameName + GameNr;
+	if ( m_CurrentGame->GetSlotsOpen() < 4 && m_CurrentGame->GetSlotsOpen() != 0 && GameName.size( ) < 29 )
+		GameName += " +" + UTIL_ToString(m_CurrentGame->GetSlotsOpen());
+	else GameName = GameName + GameNr;
 	return GameName;
 }
 

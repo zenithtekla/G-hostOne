@@ -156,7 +156,12 @@ CREATE TABLE w3mmdvars (
 	value_real REAL DEFAULT NULL,
 	value_string VARCHAR(100) DEFAULT NULL
 )
-
+CREATE TABLE textchatlog ( 
+	id INT NOT NULL PRIMARY KEY AUTO_INCREMENT, 
+	botid INT, 
+	message VARCHAR(256), 
+	time TIMESTAMP 
+)
  **************
  *** SCHEMA ***
  **************/
@@ -220,6 +225,7 @@ public:
 	virtual CCallableBanRemove *ThreadedBanRemove( string user, uint32_t warn );
 	virtual CCallableBanList *ThreadedBanList( string server );
 	virtual CCallableGameAdd *ThreadedGameAdd( string server, string map, string gamename, string ownername, uint32_t duration, uint32_t gamestate, string creatorname, string creatorserver );
+	virtual CCallableGameUpdate *ThreadedGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add );
 	virtual CCallableGamePlayerAdd *ThreadedGamePlayerAdd( uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour );
 	virtual CCallableGamePlayerSummaryCheck *ThreadedGamePlayerSummaryCheck( string name );
 	virtual CCallableDotAGameAdd *ThreadedDotAGameAdd( uint32_t gameid, uint32_t winner, uint32_t min, uint32_t sec );
@@ -229,6 +235,7 @@ public:
 	virtual CCallableWarnCount *ThreadedWarnCount( string name, uint32_t warn );
 	virtual CCallableBanUpdate *ThreadedBanUpdate( string name, string ip );
 	virtual CCallableRunQuery *ThreadedRunQuery( string query );
+	virtual CCallableStoreChat *ThreadedStoreChat( string message );
 	virtual CCallableScoreCheck *ThreadedScoreCheck( string category, string name, string server );
 	virtual CCallableW3MMDPlayerAdd *ThreadedW3MMDPlayerAdd( string category, uint32_t gameid, uint32_t pid, string name, string flag, uint32_t leaver, uint32_t practicing );
 	virtual CCallableW3MMDVarAdd *ThreadedW3MMDVarAdd( uint32_t gameid, map<VarP,int32_t> var_ints );
@@ -295,12 +302,14 @@ bool MySQLWarnForget( void *conn, string *error, uint32_t botid, string name, ui
 uint32_t MySQLRemoveTempBans( void *conn, string *error, uint32_t botid );
 vector<CDBBan *> MySQLBanList( void *conn, string *error, uint32_t botid, string server );
 uint32_t MySQLGameAdd( void *conn, string *error, uint32_t botid, string server, string map, string gamename, string ownername, uint32_t duration, uint32_t gamestate, string creatorname, string creatorserver );
+string MySQLGameUpdate( void *conn, string *error, uint32_t botid, string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add );
 uint32_t MySQLGamePlayerAdd( void *conn, string *error, uint32_t botid, uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour );
 CDBGamePlayerSummary *MySQLGamePlayerSummaryCheck( void *conn, string *error, uint32_t botid, string name );
 uint32_t MySQLDotAGameAdd( void *conn, string *error, uint32_t botid, uint32_t gameid, uint32_t winner, uint32_t min, uint32_t sec );
 uint32_t MySQLDotAPlayerAdd( void *conn, string *error, uint32_t botid, uint32_t gameid, uint32_t colour, uint32_t kills, uint32_t deaths, uint32_t creepkills, uint32_t creepdenies, uint32_t assists, uint32_t gold, uint32_t neutralkills, string item1, string item2, string item3, string item4, string item5, string item6, string hero, uint32_t newcolour, uint32_t towerkills, uint32_t raxkills, uint32_t courierkills );
 CDBDotAPlayerSummary *MySQLDotAPlayerSummaryCheck( void *conn, string *error, uint32_t botid, string name, string formula, string mingames, string gamestate );
 bool MySQLDownloadAdd( void *conn, string *error, uint32_t botid, string map, uint32_t mapsize, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t downloadtime );
+void MySQLStoreChat( void *conn, string *error, uint32_t botid, uint32_t chatid, string message );
 bool MySQLCalculateScores( void *conn, string *error, uint32_t botid, string formula, string mingames );
 double MySQLScoreCheck( void *conn, string *error, uint32_t botid, string category, string name, string server );
 uint32_t MySQLW3MMDPlayerAdd( void *conn, string *error, uint32_t botid, string category, uint32_t gameid, uint32_t pid, string name, string flag, uint32_t leaver, uint32_t practicing );
@@ -341,9 +350,11 @@ protected:
 	string m_SQLPassword;
 	uint16_t m_SQLPort;
 	uint32_t m_SQLBotID;
+//	CGHostDBMySQL *m_DB;
 
 public:
 	CMySQLCallable( void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), m_Connection( nConnection ), m_SQLBotID( nSQLBotID ), m_SQLServer( nSQLServer ), m_SQLDatabase( nSQLDatabase ), m_SQLUser( nSQLUser ), m_SQLPassword( nSQLPassword ), m_SQLPort( nSQLPort ) { }
+//	CMySQLCallable( void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), m_Connection( nConnection ), m_SQLBotID( nSQLBotID ), m_SQLServer( nSQLServer ), m_SQLDatabase( nSQLDatabase ), m_SQLUser( nSQLUser ), m_SQLPassword( nSQLPassword ), m_SQLPort( nSQLPort ), m_DB( nDB ) { }
 	virtual ~CMySQLCallable( ) { }
 
 	virtual void *GetConnection( )	{ return m_Connection; }
@@ -356,6 +367,7 @@ class CMySQLCallableAdminCount : public CCallableAdminCount, public CMySQLCallab
 {
 public:
 	CMySQLCallableAdminCount( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAdminCount( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAdminCount( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAdminCount( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAdminCount( ) { }
 
 	virtual void operator( )( );
@@ -367,6 +379,7 @@ class CMySQLCallableAdminCheck : public CCallableAdminCheck, public CMySQLCallab
 {
 public:
 	CMySQLCallableAdminCheck( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAdminCheck( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAdminCheck( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAdminCheck( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAdminCheck( ) { }
 
 	virtual void operator( )( );
@@ -378,6 +391,7 @@ class CMySQLCallableAdminAdd : public CCallableAdminAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableAdminAdd( string nServer, string nUser, uint32_t nAccess, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAdminAdd( nServer, nUser, nAccess ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAdminAdd( string nServer, string nUser, uint32_t nAccess, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAdminAdd( nServer, nUser, nAccess ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAdminAdd( ) { }
 
 	virtual void operator( )( );
@@ -389,6 +403,7 @@ class CMySQLCallableAdminRemove : public CCallableAdminRemove, public CMySQLCall
 {
 public:
 	CMySQLCallableAdminRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAdminRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAdminRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAdminRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAdminRemove( ) { }
 
 	virtual void operator( )( );
@@ -400,6 +415,7 @@ class CMySQLCallableAdminList : public CCallableAdminList, public CMySQLCallable
 {
 public:
 	CMySQLCallableAdminList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAdminList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAdminList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAdminList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAdminList( ) { }
 
 	virtual void operator( )( );
@@ -411,6 +427,7 @@ class CMySQLCallableAccessesList : public CCallableAccessesList, public CMySQLCa
 {
 public:
 	CMySQLCallableAccessesList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableAccessesList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableAccessesList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableAccessesList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableAccessesList( ) { }
 
 	virtual void operator( )( );
@@ -422,6 +439,7 @@ class CMySQLCallableSafeList : public CCallableSafeList, public CMySQLCallable
 {
 public:
 	CMySQLCallableSafeList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableSafeList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableSafeList( ) { }
 
 	virtual void operator( )( );
@@ -433,6 +451,7 @@ class CMySQLCallableSafeListV : public CCallableSafeList, public CMySQLCallable
 {
 public:
 	CMySQLCallableSafeListV( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableSafeListV( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableSafeListV( ) { }
 
 	virtual void operator( )( );
@@ -444,6 +463,7 @@ class CMySQLCallableNotes : public CCallableSafeList, public CMySQLCallable
 {
 public:
 	CMySQLCallableNotes( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableNotes( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableNotes( ) { }
 
 	virtual void operator( )( );
@@ -455,6 +475,7 @@ class CMySQLCallableNotesN : public CCallableSafeList, public CMySQLCallable
 {
 public:
 	CMySQLCallableNotesN( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableNotesN( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableNotesN( ) { }
 
 	virtual void operator( )( );
@@ -466,6 +487,7 @@ class CMySQLCallableRanks : public CCallableRanks, public CMySQLCallable
 {
 public:
 	CMySQLCallableRanks( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableRanks( nServer), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableRanks( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableRanks( nServer), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableRanks( ) { }
 
 	virtual void operator( )( );
@@ -477,6 +499,7 @@ class CMySQLCallableSafeCheck : public CCallableSafeCheck, public CMySQLCallable
 {
 public:
 	CMySQLCallableSafeCheck( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeCheck( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableSafeCheck( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeCheck( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableSafeCheck( ) { }
 
 	virtual void operator( )( );
@@ -488,6 +511,7 @@ class CMySQLCallableSafeAdd : public CCallableSafeAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableSafeAdd( string nServer, string nUser, string nVoucher, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeAdd( nServer, nUser, nVoucher ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableSafeAdd( string nServer, string nUser, string nVoucher, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeAdd( nServer, nUser, nVoucher ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableSafeAdd( ) { }
 
 	virtual void operator( )( );
@@ -499,6 +523,7 @@ class CMySQLCallableSafeRemove : public CCallableSafeRemove, public CMySQLCallab
 {
 public:
 	CMySQLCallableSafeRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableSafeRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableSafeRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableSafeRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableSafeRemove( ) { }
 
 	virtual void operator( )( );
@@ -510,6 +535,7 @@ class CMySQLCallableNoteAdd : public CCallableNoteAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableNoteAdd( string nServer, string nUser, string nNote, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableNoteAdd( nServer, nUser, nNote ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableNoteAdd( string nServer, string nUser, string nNote, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableNoteAdd( nServer, nUser, nNote ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableNoteAdd( ) { }
 
 	virtual void operator( )( );
@@ -521,6 +547,7 @@ class CMySQLCallableNoteUpdate : public CCallableNoteAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableNoteUpdate( string nServer, string nUser, string nNote, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableNoteAdd( nServer, nUser, nNote ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableNoteUpdate( string nServer, string nUser, string nNote, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableNoteAdd( nServer, nUser, nNote ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableNoteUpdate( ) { }
 
 	virtual void operator( )( );
@@ -532,6 +559,7 @@ class CMySQLCallableNoteRemove : public CCallableNoteRemove, public CMySQLCallab
 {
 public:
 	CMySQLCallableNoteRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableNoteRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableNoteRemove( string nServer, string nUser, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableNoteRemove( nServer, nUser ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableNoteRemove( ) { }
 
 	virtual void operator( )( );
@@ -543,6 +571,7 @@ class CMySQLCallableCalculateScores : public CCallableCalculateScores, public CM
 {
 public:
 	CMySQLCallableCalculateScores( string nFormula, string nMinGames, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableCalculateScores( nFormula, nMinGames ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableCalculateScores( string nFormula, string nMinGames, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableCalculateScores( nFormula, nMinGames ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableCalculateScores( ) { }
 
 	virtual void operator( )( );
@@ -554,6 +583,7 @@ class CMySQLCallableWarnUpdate : public CCallableWarnUpdate, public CMySQLCallab
 {
 public:
 	CMySQLCallableWarnUpdate( string nUser, uint32_t nBefore, uint32_t nAfter, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableWarnUpdate( nUser, nBefore, nAfter ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableWarnUpdate( string nUser, uint32_t nBefore, uint32_t nAfter, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableWarnUpdate( nUser, nBefore, nAfter ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableWarnUpdate( ) { }
 
 	virtual void operator( )( );
@@ -565,6 +595,7 @@ class CMySQLCallableWarnForget : public CCallableWarnForget, public CMySQLCallab
 {
 public:
 	CMySQLCallableWarnForget( string nUser, uint32_t nGameThreshold, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableWarnForget( nUser, nGameThreshold ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableWarnForget( string nUser, uint32_t nGameThreshold, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableWarnForget( nUser, nGameThreshold ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableWarnForget( ) { }
 
 	virtual void operator( )( );
@@ -576,6 +607,7 @@ class CMySQLCallableTodayGamesCount : public CCallableTodayGamesCount, public CM
 {
 public:
 	CMySQLCallableTodayGamesCount( void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableTodayGamesCount( ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableTodayGamesCount( void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableTodayGamesCount( ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableTodayGamesCount( ) { }
 
 	virtual void operator( )( );
@@ -587,6 +619,7 @@ class CMySQLCallableBanCount : public CCallableBanCount, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanCount( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanCount( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanCount( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanCount( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanCount( ) { }
 
 	virtual void operator( )( );
@@ -598,6 +631,7 @@ class CMySQLCallableBanCheck : public CCallableBanCheck, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanCheck( string nServer, string nUser, string nIP, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanCheck( nServer, nUser, nIP, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanCheck( string nServer, string nUser, string nIP, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanCheck( nServer, nUser, nIP, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanCheck( ) { }
 
 	virtual void operator( )( );
@@ -609,6 +643,7 @@ class CMySQLCallableBanAdd : public CCallableBanAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanAdd( string nServer, string nUser, string nIP, string nGameName, string nAdmin, string nReason, uint32_t nexpiredaytime, uint32_t nwarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanAdd( nServer, nUser, nIP, nGameName, nAdmin, nReason, nexpiredaytime, nwarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanAdd( string nServer, string nUser, string nIP, string nGameName, string nAdmin, string nReason, uint32_t nexpiredaytime, uint32_t nwarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanAdd( nServer, nUser, nIP, nGameName, nAdmin, nReason, nexpiredaytime, nwarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanAdd( ) { }
 
 	virtual void operator( )( );
@@ -620,6 +655,7 @@ class CMySQLCallableBanRemove : public CCallableBanRemove, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanRemove( string nServer, string nUser, string nAdmin, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanRemove( nServer, nUser, nAdmin, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanRemove( string nServer, string nUser, string nAdmin, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanRemove( nServer, nUser, nAdmin, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanRemove( ) { }
 
 	virtual void operator( )( );
@@ -631,6 +667,7 @@ class CMySQLCallableBanList : public CCallableBanList, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanList( string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanList( nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanList( ) { }
 
 	virtual void operator( )( );
@@ -642,7 +679,19 @@ class CMySQLCallableGameAdd : public CCallableGameAdd, public CMySQLCallable
 {
 public:
 	CMySQLCallableGameAdd( string nServer, string nMap, string nGameName, string nOwnerName, uint32_t nDuration, uint32_t nGameState, string nCreatorName, string nCreatorServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableGameAdd( nServer, nMap, nGameName, nOwnerName, nDuration, nGameState, nCreatorName, nCreatorServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableGameAdd( string nServer, string nMap, string nGameName, string nOwnerName, uint32_t nDuration, uint32_t nGameState, string nCreatorName, string nCreatorServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableGameAdd( nServer, nMap, nGameName, nOwnerName, nDuration, nGameState, nCreatorName, nCreatorServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableGameAdd( ) { }
+
+	virtual void operator( )( );
+	virtual void Init( ) { CMySQLCallable :: Init( ); }
+	virtual void Close( ) { CMySQLCallable :: Close( ); }
+};
+class CMySQLCallableGameUpdate : public CCallableGameUpdate, public CMySQLCallable
+{
+public:
+	CMySQLCallableGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableGameUpdate( map, gamename, ownername, creatorname, players, usernames, slotsTotal, totalGames, totalPlayers, add ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableGameUpdate( map, gamename, ownername, creatorname, players, usernames, slotsTotal, totalGames, totalPlayers, add ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
+	virtual ~CMySQLCallableGameUpdate( ) { }
 
 	virtual void operator( )( );
 	virtual void Init( ) { CMySQLCallable :: Init( ); }
@@ -653,6 +702,7 @@ class CMySQLCallableGamePlayerAdd : public CCallableGamePlayerAdd, public CMySQL
 {
 public:
 	CMySQLCallableGamePlayerAdd( uint32_t nGameID, string nName, string nIP, uint32_t nSpoofed, string nSpoofedRealm, uint32_t nReserved, uint32_t nLoadingTime, uint32_t nLeft, string nLeftReason, uint32_t nTeam, uint32_t nColour, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableGamePlayerAdd( nGameID, nName, nIP, nSpoofed, nSpoofedRealm, nReserved, nLoadingTime, nLeft, nLeftReason, nTeam, nColour ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableGamePlayerAdd( uint32_t nGameID, string nName, string nIP, uint32_t nSpoofed, string nSpoofedRealm, uint32_t nReserved, uint32_t nLoadingTime, uint32_t nLeft, string nLeftReason, uint32_t nTeam, uint32_t nColour, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableGamePlayerAdd( nGameID, nName, nIP, nSpoofed, nSpoofedRealm, nReserved, nLoadingTime, nLeft, nLeftReason, nTeam, nColour ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableGamePlayerAdd( ) { }
 
 	virtual void operator( )( );
@@ -664,6 +714,7 @@ class CMySQLCallableGamePlayerSummaryCheck : public CCallableGamePlayerSummaryCh
 {
 public:
 	CMySQLCallableGamePlayerSummaryCheck( string nName, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableGamePlayerSummaryCheck( nName ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableGamePlayerSummaryCheck( string nName, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableGamePlayerSummaryCheck( nName ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableGamePlayerSummaryCheck( ) { }
 
 	virtual void operator( )( );
@@ -675,6 +726,7 @@ class CMySQLCallableDotAGameAdd : public CCallableDotAGameAdd, public CMySQLCall
 {
 public:
 	CMySQLCallableDotAGameAdd( uint32_t nGameID, uint32_t nWinner, uint32_t nMin, uint32_t nSec, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableDotAGameAdd( nGameID, nWinner, nMin, nSec ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableDotAGameAdd( uint32_t nGameID, uint32_t nWinner, uint32_t nMin, uint32_t nSec, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableDotAGameAdd( nGameID, nWinner, nMin, nSec ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableDotAGameAdd( ) { }
 
 	virtual void operator( )( );
@@ -686,6 +738,7 @@ class CMySQLCallableDotAPlayerAdd : public CCallableDotAPlayerAdd, public CMySQL
 {
 public:
 	CMySQLCallableDotAPlayerAdd( uint32_t nGameID, uint32_t nColour, uint32_t nKills, uint32_t nDeaths, uint32_t nCreepKills, uint32_t nCreepDenies, uint32_t nAssists, uint32_t nGold, uint32_t nNeutralKills, string nItem1, string nItem2, string nItem3, string nItem4, string nItem5, string nItem6, string nHero, uint32_t nNewColour, uint32_t nTowerKills, uint32_t nRaxKills, uint32_t nCourierKills, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableDotAPlayerAdd( nGameID, nColour, nKills, nDeaths, nCreepKills, nCreepDenies, nAssists, nGold, nNeutralKills, nItem1, nItem2, nItem3, nItem4, nItem5, nItem6, nHero, nNewColour, nTowerKills, nRaxKills, nCourierKills ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableDotAPlayerAdd( uint32_t nGameID, uint32_t nColour, uint32_t nKills, uint32_t nDeaths, uint32_t nCreepKills, uint32_t nCreepDenies, uint32_t nAssists, uint32_t nGold, uint32_t nNeutralKills, string nItem1, string nItem2, string nItem3, string nItem4, string nItem5, string nItem6, string nHero, uint32_t nNewColour, uint32_t nTowerKills, uint32_t nRaxKills, uint32_t nCourierKills, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableDotAPlayerAdd( nGameID, nColour, nKills, nDeaths, nCreepKills, nCreepDenies, nAssists, nGold, nNeutralKills, nItem1, nItem2, nItem3, nItem4, nItem5, nItem6, nHero, nNewColour, nTowerKills, nRaxKills, nCourierKills ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableDotAPlayerAdd( ) { }
 
 	virtual void operator( )( );
@@ -697,6 +750,7 @@ class CMySQLCallableDotAPlayerSummaryCheck : public CCallableDotAPlayerSummaryCh
 {
 public:
 	CMySQLCallableDotAPlayerSummaryCheck( string nName, string nFormula, string nMinGames, string nGameState, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableDotAPlayerSummaryCheck( nName, nFormula, nMinGames, nGameState ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableDotAPlayerSummaryCheck( string nName, string nFormula, string nMinGames, string nGameState, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableDotAPlayerSummaryCheck( nName, nFormula, nMinGames, nGameState ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableDotAPlayerSummaryCheck( ) { }
 
 	virtual void operator( )( );
@@ -708,6 +762,7 @@ class CMySQLCallableDownloadAdd : public CCallableDownloadAdd, public CMySQLCall
 {
 public:
 	CMySQLCallableDownloadAdd( string nMap, uint32_t nMapSize, string nName, string nIP, uint32_t nSpoofed, string nSpoofedRealm, uint32_t nDownloadTime, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableDownloadAdd( nMap, nMapSize, nName, nIP, nSpoofed, nSpoofedRealm, nDownloadTime ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableDownloadAdd( string nMap, uint32_t nMapSize, string nName, string nIP, uint32_t nSpoofed, string nSpoofedRealm, uint32_t nDownloadTime, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableDownloadAdd( nMap, nMapSize, nName, nIP, nSpoofed, nSpoofedRealm, nDownloadTime ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableDownloadAdd( ) { }
 
 	virtual void operator( )( );
@@ -719,6 +774,7 @@ class CMySQLCallableWarnCount : public CCallableWarnCount, public CMySQLCallable
 {
 public:
 	CMySQLCallableWarnCount( string nName, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableWarnCount( nName, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableWarnCount( string nName, uint32_t nWarn, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableWarnCount( nName, nWarn ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableWarnCount( ) { }
 
 	virtual void operator( )( );
@@ -730,6 +786,7 @@ class CMySQLCallableBanUpdate : public CCallableBanUpdate, public CMySQLCallable
 {
 public:
 	CMySQLCallableBanUpdate( string nName, string nIp, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableBanUpdate( nName, nIp ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableBanUpdate( string nName, string nIp, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableBanUpdate( nName, nIp ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableBanUpdate( ) { }
 
 	virtual void operator( )( );
@@ -741,7 +798,21 @@ class CMySQLCallableRunQuery: public CCallableRunQuery, public CMySQLCallable
 {
 public:
 	CMySQLCallableRunQuery( string nQuery, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableRunQuery( nQuery ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableRunQuery( string nQuery, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableRunQuery( nQuery ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableRunQuery( ) { }
+
+	virtual void operator( )( );
+	virtual void Init( ) { CMySQLCallable :: Init( ); }
+	virtual void Close( ) { CMySQLCallable :: Close( ); }
+};
+
+class CMySQLCallableStoreChat : public CCallableStoreChat, public CMySQLCallable
+{
+protected:
+	uint32_t m_ChatID;
+public:
+	CMySQLCallableStoreChat( string nMessage, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableStoreChat( nMessage ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+	virtual ~CMySQLCallableStoreChat( ) { }
 
 	virtual void operator( )( );
 	virtual void Init( ) { CMySQLCallable :: Init( ); }
@@ -752,6 +823,7 @@ class CMySQLCallableScoreCheck : public CCallableScoreCheck, public CMySQLCallab
 {
 public:
 	CMySQLCallableScoreCheck( string nCategory, string nName, string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableScoreCheck( nCategory, nName, nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableScoreCheck( string nCategory, string nName, string nServer, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableScoreCheck( nCategory, nName, nServer ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableScoreCheck( ) { }
 
 	virtual void operator( )( );
@@ -763,6 +835,7 @@ class CMySQLCallableW3MMDPlayerAdd : public CCallableW3MMDPlayerAdd, public CMyS
 {
 public:
 	CMySQLCallableW3MMDPlayerAdd( string nCategory, uint32_t nGameID, uint32_t nPID, string nName, string nFlag, uint32_t nLeaver, uint32_t nPracticing, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableW3MMDPlayerAdd( nCategory, nGameID, nPID, nName, nFlag, nLeaver, nPracticing ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+//	CMySQLCallableW3MMDPlayerAdd( string nCategory, uint32_t nGameID, uint32_t nPID, string nName, string nFlag, uint32_t nLeaver, uint32_t nPracticing, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableW3MMDPlayerAdd( nCategory, nGameID, nPID, nName, nFlag, nLeaver, nPracticing ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
 	virtual ~CMySQLCallableW3MMDPlayerAdd( ) { }
 
 	virtual void operator( )( );
@@ -776,6 +849,9 @@ public:
 	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,int32_t> nVarInts, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarInts ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
 	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,double> nVarReals, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarReals ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
 	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,string> nVarStrings, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarStrings ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort ) { }
+/*	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,int32_t> nVarInts, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarInts ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
+	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,double> nVarReals, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarReals ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { }
+	CMySQLCallableW3MMDVarAdd( uint32_t nGameID, map<VarP,string> nVarStrings, void *nConnection, uint32_t nSQLBotID, string nSQLServer, string nSQLDatabase, string nSQLUser, string nSQLPassword, uint16_t nSQLPort, CGHostDBMySQL *nDB ) : CBaseCallable( ), CCallableW3MMDVarAdd( nGameID, nVarStrings ), CMySQLCallable( nConnection, nSQLBotID, nSQLServer, nSQLDatabase, nSQLUser, nSQLPassword, nSQLPort, nDB ) { } */
 	virtual ~CMySQLCallableW3MMDVarAdd( ) { }
 
 	virtual void operator( )( );

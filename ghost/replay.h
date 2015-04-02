@@ -32,15 +32,17 @@ class CIncomingAction;
 class CReplay : public CPacked
 {
 public:
-	enum BlockID {
-		REPLAY_LEAVEGAME		= 0x17,
-		REPLAY_FIRSTSTARTBLOCK	= 0x1A,
-		REPLAY_SECONDSTARTBLOCK	= 0x1B,
-		REPLAY_THIRDSTARTBLOCK	= 0x1C,
-		REPLAY_TIMESLOT			= 0x1F,
-		REPLAY_CHATMESSAGE		= 0x20,
-		REPLAY_CHECKSUM			= 0x22
-	};
+        enum BlockID {
+                REPLAY_LEAVEGAME                = 0x17,
+                REPLAY_FIRSTSTARTBLOCK          = 0x1A,
+                REPLAY_SECONDSTARTBLOCK         = 0x1B,
+                REPLAY_THIRDSTARTBLOCK          = 0x1C,
+                REPLAY_TIMESLOT2                = 0x1E,         // corresponds to W3GS_INCOMING_ACTION2
+                REPLAY_TIMESLOT                 = 0x1F,         // corresponds to W3GS_INCOMING_ACTION
+                REPLAY_CHATMESSAGE              = 0x20,
+                REPLAY_CHECKSUM                 = 0x22,         // corresponds to W3GS_OUTGOING_KEEPALIVE
+                REPLAY_DESYNC                   = 0x23
+        };
 
 private:
 	unsigned char m_HostPID;
@@ -56,7 +58,6 @@ private:
 	unsigned char m_StartSpotCount;
 	queue<BYTEARRAY> m_LoadingBlocks;
 	queue<BYTEARRAY> m_Blocks;
-	queue<uint32_t> m_CheckSums;
 
 public:
 	CReplay( );
@@ -75,7 +76,7 @@ public:
 	unsigned char GetStartSpotCount( )		{ return m_StartSpotCount; }
 	queue<BYTEARRAY> *GetLoadingBlocks( )	{ return &m_LoadingBlocks; }
 	queue<BYTEARRAY> *GetBlocks( )			{ return &m_Blocks; }
-	queue<uint32_t> *GetCheckSums( )		{ return &m_CheckSums; }
+	string m_CompiledBlocks;
 
 	void AddPlayer( unsigned char nPID, string nName )		{ m_Players.push_back( PIDPlayer( nPID, nName ) ); }
 	void SetSlots( vector<CGameSlot> nSlots )				{ m_Slots = nSlots; }
@@ -88,11 +89,11 @@ public:
 
 	void AddLeaveGame( uint32_t reason, unsigned char PID, uint32_t result );
 	void AddLeaveGameDuringLoading( uint32_t reason, unsigned char PID, uint32_t result );
+	void AddTimeSlot2( queue<CIncomingAction *> actions );
 	void AddTimeSlot( uint16_t timeIncrement, queue<CIncomingAction *> actions );
 	void AddChatMessage( unsigned char PID, unsigned char flags, uint32_t chatMode, string message );
-	void AddCheckSum( uint32_t checkSum );
-	void AddBlock( BYTEARRAY &block );
 	void AddLoadingBlock( BYTEARRAY &loadingBlock );
+	void BuildMoreBlocks( );
 	void BuildReplay( string gameName, string statString, uint32_t war3Version, uint16_t buildNumber );
 
 	void ParseReplay( bool parseBlocks );

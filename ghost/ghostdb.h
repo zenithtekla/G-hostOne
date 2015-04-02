@@ -62,6 +62,7 @@ class CCallableDownloadAdd;
 class CCallableWarnCount;
 class CCallableRunQuery;
 class CCallableBanUpdate;
+class CCallableStoreChat;
 class CCallableScoreCheck;
 class CCallableW3MMDPlayerAdd;
 class CCallableW3MMDVarAdd;
@@ -71,6 +72,7 @@ class CDBGamePlayer;
 class CDBGamePlayerSummary;
 class CDBScoreSummary;
 class CDBDotAPlayerSummary;
+class CCallableGameUpdate;
 
 typedef pair<uint32_t,string> VarP;
 
@@ -134,6 +136,7 @@ public:
 	virtual bool WarnUpdate( string user, uint32_t before, uint32_t after );
 	virtual bool WarnForget( string name, uint32_t gamethreshold );
 	virtual uint32_t GameAdd( string server, string map, string gamename, string ownername, uint32_t duration, uint32_t gamestate, string creatorname, string creatorserver );
+	virtual string GameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add );
 	virtual uint32_t GamePlayerAdd( uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour );
 	virtual uint32_t GamePlayerCount( string name );
 	virtual CDBGamePlayerSummary *GamePlayerSummaryCheck( string name );
@@ -142,7 +145,11 @@ public:
 	virtual uint32_t DotAPlayerCount( string name );
 	virtual CDBDotAPlayerSummary *DotAPlayerSummaryCheck( string name );
 	virtual string FromCheck( uint32_t ip );
+	virtual string CountryCheck( uint32_t ip );
+	virtual string CountryCityCheck( uint32_t ip );
+	virtual string CityCheck( uint32_t ip );	
 	virtual string WarnReasonsCheck( string user, uint32_t warn );
+//	virtual bool FromAdd( uint32_t ip1, uint32_t ip2, string country, string countrylong, string city );
 	virtual bool FromAdd( uint32_t ip1, uint32_t ip2, string country );
 	virtual bool DownloadAdd( string map, uint32_t mapsize, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t downloadtime );
 	virtual uint32_t LastAccess ();
@@ -183,6 +190,7 @@ public:
 	virtual CCallableBanRemove *ThreadedBanRemove( string user, uint32_t warn );
 	virtual CCallableBanList *ThreadedBanList( string server );
 	virtual CCallableGameAdd *ThreadedGameAdd( string server, string map, string gamename, string ownername, uint32_t duration, uint32_t gamestate, string creatorname, string creatorserver );
+	virtual CCallableGameUpdate *ThreadedGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add );
 	virtual CCallableGamePlayerAdd *ThreadedGamePlayerAdd( uint32_t gameid, string name, string ip, uint32_t spoofed, string spoofedrealm, uint32_t reserved, uint32_t loadingtime, uint32_t left, string leftreason, uint32_t team, uint32_t colour );
 	virtual CCallableGamePlayerSummaryCheck *ThreadedGamePlayerSummaryCheck( string name );
 	virtual CCallableDotAGameAdd *ThreadedDotAGameAdd( uint32_t gameid, uint32_t winner, uint32_t min, uint32_t sec );
@@ -192,6 +200,7 @@ public:
 	virtual CCallableWarnCount *ThreadedWarnCount( string name, uint32_t warn );
 	virtual CCallableBanUpdate *ThreadedBanUpdate( string name, string ip );
 	virtual CCallableRunQuery *ThreadedRunQuery( string query );
+	virtual CCallableStoreChat *ThreadedStoreChat( string message );
 	virtual CCallableScoreCheck *ThreadedScoreCheck( string category, string name, string server );
 	virtual CCallableW3MMDPlayerAdd *ThreadedW3MMDPlayerAdd( string category, uint32_t gameid, uint32_t pid, string name, string flag, uint32_t leaver, uint32_t practicing );
 	virtual CCallableW3MMDVarAdd *ThreadedW3MMDVarAdd( uint32_t gameid, map<VarP,int32_t> var_ints );
@@ -646,6 +655,27 @@ public:
 	virtual uint32_t GetResult( )				{ return m_Result; }
 	virtual void SetResult( uint32_t nResult )	{ m_Result = nResult; }
 };
+class CCallableGameUpdate : virtual public CBaseCallable
+{
+	protected:
+	   string m_Map;
+	   string m_GameName;
+	   string m_OwnerName;
+	   string m_CreatorName;
+	   bool m_Add;
+	   uint32_t m_Players;
+	   string m_Usernames;
+	   uint32_t m_SlotsTotal;
+	   uint32_t m_TotalGames;
+	   uint32_t m_TotalPlayers;
+	   string m_Result;
+	public:
+	CCallableGameUpdate( string map, string gamename, string ownername, string creatorname, uint32_t players, string usernames, uint32_t slotsTotal, uint32_t totalGames, uint32_t totalPlayers, bool add ) : CBaseCallable( ), m_Map(map), m_GameName(gamename), m_OwnerName(ownername), m_CreatorName(creatorname), m_Add(add), m_Players(players), m_Usernames(usernames), m_SlotsTotal(slotsTotal), m_TotalGames(totalGames), m_TotalPlayers(totalPlayers) { }
+	virtual ~CCallableGameUpdate( );
+
+	virtual string GetResult( )				{ return m_Result; }
+	virtual void SetResult( string nResult )	{ m_Result = nResult; }
+};
 
 class CCallableGamePlayerAdd : virtual public CBaseCallable
 {
@@ -822,6 +852,16 @@ public:
 	virtual string GetQuery( )				{ return m_Query; }
 	virtual string GetResult( )				{ return m_Result; }
 	virtual void SetResult( string nResult ){ m_Result = nResult; }
+};
+
+class CCallableStoreChat : virtual public CBaseCallable
+{
+protected:
+	string m_Message;
+public:
+	CCallableStoreChat( string nMessage ) : CBaseCallable( ), m_Message( nMessage ) { }
+	virtual ~CCallableStoreChat( );
+	virtual string GetMessage( )					{ return m_Message; }
 };
 
 class CCallableScoreCheck : virtual public CBaseCallable

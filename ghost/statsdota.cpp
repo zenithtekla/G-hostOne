@@ -275,7 +275,7 @@ bool CStatsDOTA :: ProcessAction( CIncomingAction *Action )
 						{
 							// these are only received at the end of the game
 
-							if( KeyString == "Winner" )
+							if( KeyString == "Winner" && m_Winner != 1 && m_Winner != 2 )
 							{
 								// Value 1 -> sentinel
 								// Value 2 -> scourge
@@ -443,4 +443,16 @@ void CStatsDOTA :: Save( CGHost *GHost, CGHostDB *DB, uint32_t GameID )
 	}
 	else
 		CONSOLE_Print( "[STATSDOTA: " + m_Game->GetGameName( ) + "] unable to begin database transaction, data not saved" );
+}
+void CStatsDOTA :: SetWinner( int winner )
+{
+	m_Winner = winner; 
+	if(winner == 1)
+	{
+		CONSOLE_Print( "[STATSDOTA] Setting winner to Sentinel" );
+	}
+	else if(winner == 2)
+	{
+		CONSOLE_Print( "[STATSDOTA] Setting winner to Scourge" );
+	}
 }

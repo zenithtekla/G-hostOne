@@ -941,7 +941,7 @@ The first few lines of the console won't appear in Ghost window.
 ### display information on current downloads (speed, ETA)
 bot_showdownloadsinfo = 1
 ### interval in seconds between download info message
-bot_showdownloadsinfotime = 3
+bot_showdownloadsinfotime = 90
 - new commands:
 !dlinfo [on/off]        show info on current downloads
 !dlinfotime <value>     interval in seconds between info messages

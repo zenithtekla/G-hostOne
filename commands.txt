@@ -17,7 +17,10 @@ In battle.net (via local chat or whisper at any time):
 !b                      alias to !addban
 !channel <name>         change channel
 !cc <name>              change channel
+!check					an alias of !checkme, whisper the bot to do a spoofcheck
 !checkadmin <name>      check if a user is an admin on this realm
+!checkme				whisper the bot to do a spoofcheck
+!cm						an alias of !checkme, whisper the bot to do a spoofcheck
 !ca <name>              check if a user is an admin on this realm
 !checkban <name>        check if a user is banned on this realm
 !cb <name>              check if a user is banned on this realm
@@ -25,11 +28,14 @@ In battle.net (via local chat or whisper at any time):
 !c <number> ...         close slot
 !closeall               close all open slots
 !ca                     close all open slots
+!cg						an alias of !currentgames to check for what games are currently being hosted
+!cgames					an alias of !currentgames to check for what games are currently being hosted
 !countadmins            display the total number of admins for this realm
 !cas                    display the total number of admins for this realm
 !countbans              display the total number of bans for this realm
 !cbs                    display the total number of bans for this realm
 !commands               toggle non admin commands
+!currentgames	check what games are currently being hosted
 !deladmin <name>        remove an admin from the database for this realm
 !da <name>              remove an admin from the database for this realm
 !delban <name>          remove a ban from the database for this realm
@@ -55,11 +61,17 @@ In battle.net (via local chat or whisper at any time):
 !ends                   stop end countdown
 !exit [force]           shutdown ghost++, optionally add [force] to skip checks
 !q [nice/force]         shutdown ghost++, optionally add [force] to skip checks
+!f [add|remove|list] <name>	an alias of !friend command
+!f [a|r|l] <name>			an alias of !friend command, e.g. !f l will list all friends added to my bot by myself or other admins
+!friend [add|remove|list] <name> 	add a friend to the bot's friend list, e.g. !friend a mybud
+!friend [a|r|l] <name> 				add a friend to the bot's friend list, i.e. !friend r myfoe
 !fadd <name>            add a friend
 !fa <name>              add a friend
 !fdel <name>            delete a friend
 !fd <name>              delete a friend
 !fw [msg]               will send a message to all the bot's friends, without parameter will send: Lobby: gamename (1/10) - ownername
+!g						an alias of !games update gamelist to database, it's from gamelist patch made by uakf.b
+!games					update gamelist to database, it's from gamelist patch made by uakf.b
 !getclan                refresh the internal copy of the clan members list
 !gc                     refresh the internal copy of the clan members list
 !getfriends             refresh the internal copy of the friends list
@@ -100,6 +112,7 @@ In battle.net (via local chat or whisper at any time):
 !rcfg                   reload ghost.cfg
 !rd <seconds>           auto rehost delay in seconds
 !rb                     refresh banlist (updates cached bans/admins by reading them again from the dbase)
+!refresh                refresh banlist (updates cached bans/admins by reading them again from the dbase)
 !rload [pattern]        load a real map file, leave blank to see current map
 !rmap [pattern]         load a real map file, leave blank to see current map
 !say <text>             send <text> to battle.net as a chat command
@@ -115,6 +128,9 @@ In battle.net (via local chat or whisper at any time):
 !sld <name>             delete player from safelist
 !slr <name>             remove player from safelist
 !sp                     shuffle players
+!sc						an alias of !spoofcheck & !checkme, whisper the bot to do a spoofcheck	
+!spoof					an alias of !spoofcheck & !checkme, whisper the bot to do a spoofcheck	
+!spoofcheck				an alias of !checkme, whisper the bot to do a spoofcheck					
 !start [force]          start game, optionally add [force] to skip checks
 !startn                 start game now! (no countdown)
 !stats [name]           display basic player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
@@ -149,12 +165,17 @@ In game lobby:
 !a                      alias to !abort
 !abort                  abort countdown
 !acc [name] [cmd] [acc] access commands available to admins, !acc lists available cmds, !acc name 1/0 - access all/none cmds
+!admin					alias to !owner command, to gain the lobby control temporarily
+!adminlock				for admins to disable !owner/!admin and temp owner rights 
 !announce <sec> <msg>   set the announce message (the bot will print <msg> every <sec> seconds), leave blank or "off" to disable the announce message, use | as newline
 !autostart <players>    auto start the game when the specified number of players have joined, leave blank or "off" to disable auto start
 !bans off|on            enables/disables auto kicking banned people from lobby
 !fw [msg]               will send a message to all the bot's friends, without parameter will send: Lobby: gamename (1/10) - ownername
 !check <name>           check a user's status (leave blank to check your own status)
 !checkban <name>        check if a user is banned on any realm
+!clearblname			an alias to !clearblacklistedname, clear the list of banned names
+!clearblacklistname		an alias to !clearblacklistedname, clear the list of banned names
+!clearblacklistedname	clear the list of banned names
 !close <number> ...     close slot
 !closeall               close all open slots
 !commands               toggle non admin commands
@@ -163,6 +184,13 @@ In game lobby:
 !comphandicap <s> <h>   change a computer's handicap in slot <s> to <h> (h is 50, 60, 70, 80, 90, or 100)
 !comprace <s> <r>       change a computer's race in slot <s> to <r> (r is "human", "orc", "night elf", "undead", or "random")
 !compteam <s> <t>       change a computer's team in slot <s> to <t> (t goes from 1 to # of teams)
+!df						an alias to !deletefake, delete a fakeplayer
+!delfake				an alias to !deletefake, delete a fakeplayer
+!deletefake				delete a fakeplayer
+!dfs/!delfakes/!deletefakes	delete all fakeplayers
+!delblname <name, partial name>				an alias to !delblacklistedname, remove a player by his/her name out of that list
+!delblacklistname <name, partial name>		an alias to !delblacklistedname, remove a player by his/her name out of that list
+!delblacklistedname <name, partial name>	remove a player by his/her name out of that list
 !dl <name>              alias to !download
 !dlinfo [on/off]        show info on current downloads
 !dli [on/off]           show info on current downloads
@@ -182,6 +210,8 @@ In game lobby:
 !fp <name>              display the country each player is from + providers, or of a player
 !garena                 toggle allowing garena only (and admins) or everyone
 !gn                     display current game name
+!go						an alias of ready, cast a vote for starting game, 4 votes needed
+!help/!helps/!idk		bot will print a msg to guide you on what to do for controlling lobby & starting game
 !hold <name> ...        hold a slot for someone
 !holds <name> <nr> ...  hold a specified slot for someone
 !ips                    show IPs of players
@@ -201,15 +231,19 @@ In game lobby:
 !note/!n <name> [note]  will show the note for player name (if no note given) or set a note
 !nr <name>              will remove a note
 !unmute <name>          unmutes a player (it tries to do a partial match)
+!obsplayer 				add/remove observer player
 !open <number> ...      open slot
 !open <number> ...      open slot
 !openall                open all closed slots
-!owner [name]           set game owner to yourself, optionally add [name] to set game owner to someone else
+!owner [name]           temporarily set game owner to yourself, optionally add [name] to set game owner to someone else
 !ping [number]          ping players, optionally add [number] to kick players with ping above [number]
 !p [number]             ping players, optionally add [number] to kick players with ping above [number]
 !priv <name>            rehost as private game
 !pri <name>             rehost as private inhouse game
 !pub [name]             rehost as public game, a simple !pub will auto set a new name!
+!rdy					an alias to !ready
+!ready					cast a vote for starting game, 4 votes needed
+!realm					display what realms the players are playing on
 !rehost [name]          rehost with same parameters, a simple !rehost will auto set a new name!
 !refresh [on/off]       enable or disable refresh messages, by itself it close all slots and then opens them.
 !rd [value]             set rehostdelay
@@ -228,6 +262,7 @@ In game lobby:
 !sdi [name]             display DotA player per inhouse game statistics, optionally add [name]
 !sdpub [name]           display DotA player per public game statistics, optionally add [name]
 !sdpriv [name]          display inhouse DotA player per private game statistics, optionally add [name]
+!sc/!cm/!checkme/!spoofcheck/!check me/!spoof c/!spoofc all work for spoofchecking
 !statsdota [name]       display DotA player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
 !swap <n1> <n2>         swap slots
 !synclimit <number>     set sync limit for the lag screen (10-10000), leave blank to see current sync limit
@@ -244,10 +279,12 @@ In game lobby:
 !virtualhost <name>     change the virtual host name
 !votecancel             cancel a votekick
 !votekick <name>        start a votekick (it tries to do a partial match, can be used by non admins)
+!vk <name>        		alias to votekick above
+!votestart				a poll to start game, it normally requires about 90% of players voted to agree about starting game
+!vs						alias to votestart above
 !verbose                toggle info showing on player trying to join and getting kicked
 !vb                     toggle info showing on player trying to join and getting kicked
 !w <name> <message>     send a whisper on every connected battle.net realm from the bot's account to the player called <name> (this command is HIDDEN from other players)
-
 
 In game:
 
@@ -259,7 +296,11 @@ In game:
 !checkban <name>        check if a user is banned on any realm
 !drop                   drop all lagging players
 !end                    end the game (disconnect everyone)
+!ff						an alias to forfeit (below) only used in dota games
+!forfeit				only used in dota games to forfeit a game without losing points but gaining scores instead for both winning and losing teams. It's a good end for a game and for two teams
 !gn                     display current game name
+!getnames               get names of current games
+!gns                    get names of current games
 !kick <name>            kick a player (it tries to do a partial match)
 !latency <number>       set game latency (50-500), leave blank to see current latency
 !dr <number>            alias to latency 
@@ -272,9 +313,7 @@ In game:
 !owner [name]           set game owner to yourself, optionally add [name] to set game owner to someone else
 !rd <seconds>           auto rehost delay in seconds
 !roll                   will pick a random number from 1-100
-!stats [name]           display basic player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
-!statsdota [name]       display DotA player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
-!synclimit <number>     set sync limit for the lag screen (10-10000), leave blank to see current sync limit
+!rmk					vote for ending the current game
 !sl <name>              check if player is safelisted
 !sladd <name>           add player to safelist
 !sla <name>             add player to safelist
@@ -282,6 +321,9 @@ In game:
 !sld <name>             delete player from safelist
 !slr <name>             remove player from safelist
 !slap <name>            slap message
+!stats [name]           display basic player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
+!statsdota [name]       display DotA player statistics, optionally add [name] to display statistics for another player (can be used by non admins)
+!synclimit <number>     set sync limit for the lag screen (10-10000), leave blank to see current sync limit
 !top                    top10, calculate with !topc or in GHost One first
 !top10                  top10, calculate with !topc or in GHost One first
 !topc                   calculate scores, when used with sqlite will block bot while calculating
@@ -299,11 +341,9 @@ In game:
 !warnlast/wlast/wl      warn last
 !wlast                  warn last
 !wl                     warn last
+!y                    	alias to !yes below
 !yes                    register a vote in the votekick (can be used by non admins)
-!getnames               get names of current games
-!gns                    get names of current games
 !w <name> <message>     send a whisper on every connected battle.net realm from the bot's account to the player called <name> (this command is HIDDEN from other players)
-
 
 In admin game lobby:
 
@@ -339,3 +379,4 @@ In admin game lobby:
 !unban <name>                   alias to !delban
 !unhost                         unhost game in lobby (not the admin game)
 !w <name> <message>             send a whisper on every connected battle.net realm from the bot's account to the player called <name>
+!realm							display what realms the players are playing on

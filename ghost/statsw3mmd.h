@@ -33,7 +33,7 @@ private:
 	string m_Category;
 	uint32_t m_NextValueID;
 	uint32_t m_NextCheckID;
-	map<uint32_t,string> m_PIDToName;			// pid -> player name (e.g. 0 -> "Varlock") --- note: will not be automatically converted to lower case
+	map<uint32_t,string> m_PIDToName;			// pid -> player name (e.g. 0 -> "Gen") --- note: will not be automatically converted to lower case
 	map<uint32_t,string> m_Flags;				// pid -> flag (e.g. 0 -> "winner")
 	map<uint32_t,bool> m_FlagsLeaver;			// pid -> leaver flag (e.g. 0 -> true) --- note: will only be present if true
 	map<uint32_t,bool> m_FlagsPracticing;		// pid -> practice flag (e.g. 0 -> true) --- note: will only be present if true
@@ -50,6 +50,7 @@ public:
 	virtual bool ProcessAction( CIncomingAction *Action );
 	virtual void Save( CGHost *GHost, CGHostDB *DB, uint32_t GameID );
 	virtual vector<string> TokenizeKey( string key );
+	virtual void SetWinner(int winner);
 };
 
 #endif

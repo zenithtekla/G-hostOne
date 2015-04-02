@@ -21,11 +21,15 @@
 #ifndef GAMEPLAYER_H
 #define GAMEPLAYER_H
 
+#include <list>
+using namespace std;
+
 class CTCPSocket;
 class CCommandPacket;
 class CGameProtocol;
 class CGame;
 class CIncomingJoinPlayer;
+class CIncomingGarenaUser;
 
 //
 // CPotentialPlayer
@@ -48,7 +52,15 @@ protected:
 	bool m_LANSet;
 	bool m_LAN;
 	string m_ErrorString;
+	string m_RoomName;
+//	string m_RoomVersion;
 	CIncomingJoinPlayer *m_IncomingJoinPlayer;
+	CIncomingGarenaUser *m_IncomingGarenaUser;
+	bool m_Banned;
+	
+	uint32_t m_ConnectionState;	// zero if no packets received (wait REQJOIN), one if only REQJOIN received (wait MAPSIZE), two otherwise
+	uint32_t m_ConnectionTime;	// last time the player did something relating to connection state
+	string m_CachedIP;              // cached external IP string
 
 public:
 	CPotentialPlayer( CGameProtocol *nProtocol, CBaseGame *nGame, CTCPSocket *nSocket );
@@ -62,11 +74,16 @@ public:
 	virtual bool GetDeleteMe( )						{ return m_DeleteMe; }
 	virtual bool GetError( )						{ return m_Error; }
 	virtual string GetErrorString( )				{ return m_ErrorString; }
+	virtual string GetGaRoomName( )					{ return m_RoomName; }
 	virtual CIncomingJoinPlayer *GetJoinPlayer( )	{ return m_IncomingJoinPlayer; }
+	virtual CIncomingGarenaUser *GetGarenaUser( )	{ return m_IncomingGarenaUser; }
+ 	virtual BYTEARRAY GetGarenaIP( );
 
 	virtual void SetSocket( CTCPSocket *nSocket )	{ m_Socket = nSocket; }
 	virtual void SetDeleteMe( bool nDeleteMe )		{ m_DeleteMe = nDeleteMe; }
-
+	virtual void SetGarenaUser( CIncomingGarenaUser *nIncomingGarenaUser ) { m_IncomingGarenaUser = nIncomingGarenaUser; }
+	virtual void SetBanned( )						{ m_Banned = true; }
+	
 	// processing functions
 
 	virtual bool Update( void *fd );
@@ -98,8 +115,10 @@ private:
 	uint32_t m_TotalPacketsReceived;
 	string m_Provider;							// the internet provider of this player
 	string m_Country;							// the country of this player
+	string m_CountryCity;						// the country & city of this player
 	uint32_t m_LeftCode;						// the code to be sent in W3GS_PLAYERLEAVE_OTHERS for why this player left the game
 	uint32_t m_LoginAttempts;					// the number of attempts to login (used with CAdminGame only)
+	uint32_t m_Cookies;							// the number of cookies this user has, for the !cookie and !eat command
 	uint32_t m_SyncCounter;						// the number of keepalive packets received from this player
 	uint32_t m_JoinTime;						// GetTime when the player joined the game (used to delay sending the /whois a few seconds to allow for some lag)
 	uint32_t m_LastMapPartSent;					// the last mappart sent to the player (for sending more than one part at a time)
@@ -108,6 +127,7 @@ private:
 	uint32_t m_FinishedDownloadingTime;			// GetTime when the player finished downloading the map
 	uint32_t m_FinishedLoadingTicks;			// GetTicks when the player finished loading the game
 	uint32_t m_StartedLaggingTicks;				// GetTicks when the player started lagging
+	uint32_t m_TotalLaggingTicks;				// total ticks that the player has been lagging in the game
 	uint32_t m_StatsSentTime;					// GetTime when we sent this player's stats to the chat (to prevent players from spamming !stats)
 	uint32_t m_StatsDotASentTime;				// GetTime when we sent this player's dota stats to the chat (to prevent players from spamming !statsdota)
 	uint32_t m_LastGProxyWaitNoticeSentTime;
@@ -130,19 +150,35 @@ private:
 	bool m_FinishedLoading;						// if the player has finished loading or not
 	bool m_Lagging;								// if the player is lagging or not (on the lag screen)
 	bool m_DropVote;							// if the player voted to drop the laggers or not (on the lag screen)
-	bool m_KickVote;							// if the player voted to kick a player or not
+	bool m_KickVote;							// if the player voted to kick a player or not	
+	bool m_StartVote;						    // if the player !ready or not
+	bool m_HasFFed;		
+	uint32_t m_TimeOfFF;       
+	bool m_CanFF; 
+	bool m_HasRMKed;		
+	uint32_t m_TimeOfRMK;       
+	bool m_CanRMK;
 	bool m_RmkVote;								// if the player voted to rmk or not
 	bool m_Muted;								// if the player is muted or not
+	bool m_Autoban;								// whether or not this player should be consider for autobanning
+	vector<uint32_t> m_MuteMessages;			// times player sent messages to determine if we should automute
+	uint32_t m_MutedTicks;
+	vector<uint32_t> m_FlameMessages;			// times player sent messages to determine flame level
+	bool m_MutedAuto;							// whether or not mute was automatic mute
 	bool m_LeftMessageSent;						// if the playerleave message has been sent or not
 	bool m_GProxy;								// if the player is using GProxy++
 	bool m_GProxyDisconnectNoticeSent;			// if a disconnection notice has been sent or not when using GProxy++
 	queue<BYTEARRAY> m_GProxyBuffer;
 	uint32_t m_GProxyReconnectKey;
 	uint32_t m_LastGProxyAckTime;
+	vector<string> m_IgnoreList;				// list of usernames this player is ignoring
+	uint32_t m_TimeActive;           			// AFK detection
 	bool m_ScoreSet;
 	bool m_RankSet;
 	string m_ScoreS;
 	string m_RankS;
+	list<string> m_LastMessages;				// store the last messages sent for spam prevention
+	list<string> m_LastCMDMessages;				// store the last command messages sent for abuse prevention
 
 public:
 	CGamePlayer( CGameProtocol *nProtocol, CBaseGame *nGame, CTCPSocket *nSocket, unsigned char nPID, string nJoinedRealm, string nName, BYTEARRAY nInternalIP, bool nReserved );
@@ -163,6 +199,7 @@ public:
 	string GetLeftReason( )						{ return m_LeftReason; }
 	string GetSpoofedRealm( )					{ return m_SpoofedRealm; }
 	string GetJoinedRealm( )					{ return m_JoinedRealm; }
+	uint32_t GetCookies( )						{ return m_Cookies; }
 	uint32_t GetLeftCode( )						{ return m_LeftCode; }
 	uint32_t GetLoginAttempts( )				{ return m_LoginAttempts; }
 	uint32_t GetSyncCounter( )					{ return m_SyncCounter; }
@@ -173,6 +210,7 @@ public:
 	uint32_t GetFinishedDownloadingTime( )		{ return m_FinishedDownloadingTime; }
 	uint32_t GetFinishedLoadingTicks( )			{ return m_FinishedLoadingTicks; }
 	uint32_t GetStartedLaggingTicks( )			{ return m_StartedLaggingTicks; }
+	uint32_t GetTotalLaggingTicks( )			{ return m_TotalLaggingTicks; }
 	uint32_t GetStatsSentTime( )				{ return m_StatsSentTime; }
 	uint32_t GetStatsDotASentTime( )			{ return m_StatsDotASentTime; }
 	uint32_t GetLastGProxyWaitNoticeSentTime( )	{ return m_LastGProxyWaitNoticeSentTime; }
@@ -192,6 +230,19 @@ public:
 	bool GetLagging( )							{ return m_Lagging; }
 	bool GetDropVote( )							{ return m_DropVote; }
 	bool GetKickVote( )							{ return m_KickVote; }
+	bool GetStartVote( )                        { return m_StartVote; }
+	bool GetHasFFed( )							{ return m_HasFFed; }
+	void SetHadFFed( bool nHasFFed )			{ m_HasFFed = nHasFFed; }
+	void SetTimeFFed(uint32_t set_time) 		{ m_TimeOfFF = set_time; }
+	uint32_t GetTimeOfFF() 						{ return m_TimeOfFF;}
+	void SetCanFF( bool nCanFF )				{ m_CanFF = nCanFF; }
+	bool CanFF()    							{ return m_CanFF;}
+	bool GetHasRMKed( )							{ return m_HasRMKed; }
+	void SetHadRMKed( bool nHasRMKed )			{ m_HasRMKed = nHasRMKed; }
+	void SetTimeRMKed(uint32_t set_time) 		{ m_TimeOfRMK = set_time; }
+	uint32_t GetTimeOfRMK() 					{ return m_TimeOfRMK;}
+	void SetCanRMK( bool nCanRMK )				{ m_CanRMK = nCanRMK; }
+	bool CanRMK()    							{ return m_CanRMK;}
 	bool GetRmkVote( )							{ return m_RmkVote; }
 	bool GetMuted( )							{ return m_Muted; }
 	bool GetLeftMessageSent( )					{ return m_LeftMessageSent; }
@@ -211,6 +262,7 @@ public:
 	void SetLeftReason( string nLeftReason )										{ m_LeftReason = nLeftReason; }
 	void SetSpoofedRealm( string nSpoofedRealm )									{ m_SpoofedRealm = nSpoofedRealm; }
 	void SetLeftCode( uint32_t nLeftCode )											{ m_LeftCode = nLeftCode; }
+	void SetCookies( uint32_t nCookies )											{ m_Cookies = nCookies; }
 	void SetLoginAttempts( uint32_t nLoginAttempts )								{ m_LoginAttempts = nLoginAttempts; }
 	void SetSyncCounter( uint32_t nSyncCounter )									{ m_SyncCounter = nSyncCounter; }
 	void SetLastMapPartSent( uint32_t nLastMapPartSent )							{ m_LastMapPartSent = nLastMapPartSent; }
@@ -218,6 +270,7 @@ public:
 	void SetStartedDownloadingTicks( uint32_t nStartedDownloadingTicks )			{ m_StartedDownloadingTicks = nStartedDownloadingTicks; }
 	void SetFinishedDownloadingTime( uint32_t nFinishedDownloadingTime )			{ m_FinishedDownloadingTime = nFinishedDownloadingTime; }
 	void SetStartedLaggingTicks( uint32_t nStartedLaggingTicks )					{ m_StartedLaggingTicks = nStartedLaggingTicks; }
+	void SetTotalLaggingTicks( uint32_t nTotalLaggingTicks )						{ m_TotalLaggingTicks = nTotalLaggingTicks; }
 	void SetStatsSentTime( uint32_t nStatsSentTime )								{ m_StatsSentTime = nStatsSentTime; }
 	void SetStatsDotASentTime( uint32_t nStatsDotASentTime )						{ m_StatsDotASentTime = nStatsDotASentTime; }
 	void SetLastGProxyWaitNoticeSentTime( uint32_t nLastGProxyWaitNoticeSentTime )	{ m_LastGProxyWaitNoticeSentTime = nLastGProxyWaitNoticeSentTime; }
@@ -229,18 +282,20 @@ public:
 	void SetDownloadAllowed( bool nDownloadAllowed )								{ m_DownloadAllowed = nDownloadAllowed; }
 	void SetDownloadStarted( bool nDownloadStarted )								{ m_DownloadStarted = nDownloadStarted; }
 	void SetDownloadFinished( bool nDownloadFinished )								{ m_DownloadFinished = nDownloadFinished; }
-	void SetDownloadInfo( string nDownloadInfo )							{ m_DownloadInfo = nDownloadInfo; }
+	void SetDownloadInfo( string nDownloadInfo )									{ m_DownloadInfo = nDownloadInfo; }
 	void SetLagging( bool nLagging )												{ m_Lagging = nLagging; }
 	void SetDropVote( bool nDropVote )												{ m_DropVote = nDropVote; }
 	void SetKickVote( bool nKickVote )												{ m_KickVote = nKickVote; }
-	void SetRmkVote( bool nRmkVote )										{ m_RmkVote = nRmkVote; }
-	void SetMuted( bool nMuted )													{ m_Muted = nMuted; }
+	void SetStartVote( bool nStartVote ) 											{ m_StartVote = nStartVote; }
+	void SetRmkVote( bool nRmkVote )												{ m_RmkVote = nRmkVote; }
+	void SetMuted( bool nMuted )													{ m_Muted = nMuted; m_MutedTicks = GetTicks( ); m_MutedAuto = false; }
 	void SetLeftMessageSent( bool nLeftMessageSent )								{ m_LeftMessageSent = nLeftMessageSent; }
 	void SetGProxyDisconnectNoticeSent( bool nGProxyDisconnectNoticeSent )			{ m_GProxyDisconnectNoticeSent = nGProxyDisconnectNoticeSent; }
-	void SetWarnChecked( bool nWarnChecked )								{ m_WarnChecked = nWarnChecked; }
-	void SetName (string nName)												{ m_Name = nName; }
+	void SetWarnChecked( bool nWarnChecked )										{ m_WarnChecked = nWarnChecked; }
+	void SetName( string nName )													{ m_Name = nName; }
 	virtual string GetProvider( );											
 	virtual string GetCountry ( );
+//	virtual string GetCountryCity ( );
 	void SetSID( unsigned char nSID )										{ m_SID = nSID; }
 	void SetDOTAKills( uint32_t nKills )									{ m_DOTAKills = nKills; }
 	void SetDOTADeaths( uint32_t nDeaths )									{ m_DOTADeaths = nDeaths; }
@@ -254,8 +309,21 @@ public:
 
 	string GetNameTerminated( );
 	uint32_t GetPing( bool LCPing );
+	
+	bool GetIsIgnoring( string username );
+	void Ignore( string username );
+	void UnIgnore( string username );
+	
+	bool IsSpammer( );
+	bool IsAbuser( );
+	void PushMessage( string message, bool check );
+	void PushCMDMessage( string message, bool check );
 
 	void AddLoadInGameData( BYTEARRAY nLoadInGameData )								{ m_LoadInGameData.push( nLoadInGameData ); }
+	
+	// AFK detection
+	uint32_t  GetTimeActive( )     { return m_TimeActive; }
+	void SetTimeActive      ( uint32_t nTimeActive )          { m_TimeActive = nTimeActive; } 
 
 	// processing functions
 

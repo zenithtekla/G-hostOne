@@ -33,6 +33,7 @@ class CUDPSocket;
 class CTCPServer;
 class CTCPSocket;
 class CGPSProtocol;
+class CGCBIProtocol;
 class CCRC32;
 class CSHA1;
 class CBNET;
@@ -46,6 +47,8 @@ class CSaveGame;
 //UDPCommandSocket patch
 class CUDPServer;
 class CConfig;
+class CCallableGameUpdate;
+struct DenyInfo;
 
 class CMyCallableDownloadFile : public CBaseCallable
 {
@@ -69,6 +72,7 @@ public:
 	CTCPServer *m_ReconnectSocket;			// listening socket for GProxy++ reliable reconnects
 	vector<CTCPSocket *> m_ReconnectSockets;// vector of sockets attempting to reconnect (connected but not identified yet)
 	CGPSProtocol *m_GPSProtocol;
+	CGCBIProtocol *m_GCBIProtocol;
 	CCRC32 *m_CRC;							// for calculating CRC's
 	CSHA1 *m_SHA;							// for calculating SHA1's
 	vector<CBNET *> m_BNETs;				// all our battle.net connections (there can be more than one)
@@ -79,15 +83,20 @@ public:
 	CGHostDB *m_DBLocal;					// local database (for temporary data)
 	vector<CBaseCallable *> m_Callables;	// vector of orphaned callables waiting to die
 	vector<BYTEARRAY> m_LocalAddresses;		// vector of local IP addresses
+	map<string, DenyInfo> m_DenyIP;			// map (IP -> DenyInfo) of denied IP addresses
 	CLanguage *m_Language;					// language
 	CMap *m_Map;							// the currently loaded map
 	CMap *m_AdminMap;						// the map to use in the admin game
-	CMap *m_AutoHostMap;					// the map to use when autohosting
+	CMap *m_AutoHostMapManually;						// the map to use when autohosting
+	vector<CMap*> m_AutoHostMap;			// the maps to use when autohosting
+	uint32_t m_AutoHostMapCounter;			// counter determining which autohost map should be hosted next
 	CSaveGame *m_SaveGame;					// the save game to use
 	vector<PIDPlayer> m_EnforcePlayers;		// vector of pids to force players to use in the next game (used with saved games)
 	bool m_Exiting;							// set to true to force ghost to shutdown next update (used by SignalCatcher)
 	bool m_ExitingNice;						// set to true to force ghost to disconnect from all battle.net connections and wait for all games to finish before shutting down
 	bool m_Enabled;							// set to false to prevent new games from being created
+	bool m_ManualAutoHost;					// manually make autohost games through !autohost commands
+	string m_RemakeGame;					// manually remake game through !rmk vote
 	string m_Version;						// GHost++ version string
 	string m_GHostVersion;					// GHost++ version string
 	vector<string> providersn;
@@ -118,10 +127,11 @@ public:
 	uint32_t m_AutoBanTeamDiffMax;			// if we have more then x number of players more then other team
 	uint32_t m_AutoBanTimer;				// time in mins the auto ban will stay on in game.
 	bool m_AutoBanAll;						// ban even if it does not make game uneven
-	uint32_t m_AutoBanFirstXLeavers;			// bans the first x leavers reguardless of even or not.
+	uint32_t m_AutoBanFirstXLeavers;		// bans the first x leavers reguardless of even or not.
 	uint32_t m_AutoBanGameLoading;			// Ban if leave during loading
 	uint32_t m_AutoBanCountDown;			// Ban if leave during game start countdown.
-	uint32_t m_AutoBanGameEndMins;			// Ban if not left around x mins of game end time.
+	uint32_t m_AutoBanGameEndMins;			// Ban if left too early to x mins of game end time. Players who left within x mins of game end time will not be affected
+	uint32_t m_AutoWarnGameEndMins;			// Warn if left too early to x mins of game end time. Players who left within x mins of game end time will not be affected
 	uint32_t m_GUIPort;
 	string m_CensorWords;
 	bool m_CensorMute;
@@ -146,12 +156,16 @@ public:
 	string m_ScoreFormula;					// score formula, config value
 	string m_ScoreMinGames;					// score min games, config value
 	string m_AutoHostGameName;				// the base game name to auto host with
+	string m_ManualAutoHostGameName;				// the base game name to auto host with
 	string m_AutoHostMapCFG;				// the map config to auto host with
 	string m_AutoHostOwner;
 	string m_AutoHostServer;
-	uint32_t m_AutoHostMaximumGames;		// maximum number of games to auto host
+	uint32_t m_AutoHostMaximumGames;		// maximum number of games to auto host	
 	uint32_t m_AutoHostAutoStartPlayers;	// when using auto hosting auto start the game when this many players have joined
+	uint32_t m_BotAutoStartPlayers;			// use this variable to reset the number of ppls needed for autostart in autohosting game
 	uint32_t m_LastAutoHostTime;			// GetTime when the last auto host was attempted
+	uint32_t m_LastGameUpdateTime;      	// GetTime when the gamelist was last updated
+	CCallableGameUpdate *m_CallableGameUpdate;// threaded database game update in progress
 	bool m_AutoHostMatchMaking;
 	double m_AutoHostMinimumScore;
 	double m_AutoHostMaximumScore;
@@ -162,6 +176,7 @@ public:
 	bool m_TFT;								// config value: TFT enabled or not
 	string m_BindAddress;					// config value: the address to host games on
 	uint16_t m_HostPort;					// config value: the port to host games on
+	uint16_t m_BroadCastPort;					// config value: the port to host games on
 	bool m_Reconnect;						// config value: GProxy++ reliable reconnects enabled or not
 	uint16_t m_ReconnectPort;				// config value: the port to listen for GProxy++ reliable reconnects on
 	uint32_t m_ReconnectWaitTime;			// config value: the maximum number of minutes to wait for a GProxy++ reliable reconnect
@@ -173,14 +188,19 @@ public:
 	bool m_SaveReplays;						// config value: save replays
 	string m_ReplayPath;					// config value: replay path
 	string m_VirtualHostName;				// config value: virtual host name
+	string m_BlacklistedNames;				// config value: blacklisted names
+	string m_ObsPlayerName;					// config value: obs player name
+	string m_UrOwnCommand;					// config value: obs player name
 	bool m_HideIPAddresses;					// config value: hide IP addresses from players
 	bool m_CheckMultipleIPUsage;			// config value: check for multiple IP address usage
 	uint32_t m_SpoofChecks;					// config value: do automatic spoof checks or not
+	uint32_t m_NewOwner;					// config value: new owner in game
 	bool m_RequireSpoofChecks;				// config value: require spoof checks or not
 	bool m_RefreshMessages;					// config value: display refresh messages or not (by default)
 	bool m_AutoLock;						// config value: auto lock games when the owner is present
 	bool m_AutoSave;						// config value: auto save before someone disconnects
 	uint32_t m_AllowDownloads;				// config value: allow map downloads or not
+	uint32_t m_DefaultAllowDownloads;		// config value: allow map downloads or not
 	bool m_PingDuringDownloads;				// config value: ping during map downloads or not
 	bool m_LCPings;							// config value: use LC style pings (divide actual pings by two)
 	uint32_t m_DropVoteTime;       			// config value: accept drop votes after this amount of seconds
@@ -189,6 +209,9 @@ public:
 	string m_IPBlackListFile;				// config value: IP blacklist file (ipblacklist.txt)
 	uint32_t m_Latency;						// config value: the latency (by default)
 	uint32_t m_SyncLimit;					// config value: the maximum number of packets a player can fall out of sync before starting the lag screen (by default)
+	bool m_VoteStartAllowed;    			// config value: if votestarts are allowed or not
+	bool m_VoteStartAutohostOnly;           // config value: if votestarts are only allowed in autohosted games
+	uint32_t m_VoteStartMinPlayers;         // config value: minimum number of players before users can !votestart
 	bool m_VoteKickAllowed;					// config value: if votekicks are allowed or not
 	uint32_t m_VoteKickPercentage;			// config value: percentage of players required to vote yes for a votekick to pass
 	string m_DefaultMap;					// config value: default map (map.cfg)
@@ -206,12 +229,64 @@ public:
 	uint32_t m_ReplayBuildNumber;			// config value: replay build number (for saving replays)
 	bool m_TCPNoDelay;						// config value: use Nagle's algorithm or not
 	uint32_t m_MatchMakingMethod;			// config value: the matchmaking method
-
+	uint32_t m_MapGameType;                 // config value: the MapGameType overwrite (aka: refresh hack)
+//	string m_LocalIPs;            			// config value: list of local IP's (which Garena is allowed from)
+	vector<string> m_FlameTriggers;			// triggers for antiflame system
+	
+	uint32_t m_DenyMaxDownloadTime;			// config value: the maximum download time in milliseconds
+	uint32_t m_DenyMaxMapsizeTime;			// config value: the maximum time in milliseconds to wait for a MAPSIZE packet
+	uint32_t m_DenyMaxReqjoinTime;			// config value: the maximum time in milliseconds to wait for a REQJOIN packet
+	uint32_t m_DenyMaxIPUsage;				// config value: the maximum number of users from the same IP address to accept
+	uint32_t m_DenyMaxLoadTime;				// config value: the maximum time in milliseconds to wait for players to load
+	
+	uint32_t m_DenyMapsizeDuration;			// config value: time to deny due to no mapsize received
+	uint32_t m_DenyDownloadDuration;		// config value: time to deny due to low download speed
+	uint32_t m_DenyReqjoinDuration;			// config value: time to deny due to no reqjoin received
+	uint32_t m_DenyIPUsageDuration;			// config value: time to deny due to high multiple IP usage
+	uint32_t m_DenyLoadDuration;			// config value: time to deny due to no load received
+	uint32_t m_ExtendDeny;					// config value: time for the denial to be extended
+	uint32_t m_PlayerBeforeStartPrintDelay; // config value: delay * 10s is the time between two WaitingForPlayersBeforeStart prints
+	uint32_t m_RehostPrintingDelay;			// config value: delay X times of rehost print should be not sent to prevent spamming in lobby		
+	
+	uint32_t m_ActualRehostPrintingDelay;   // Counts the number of checks before printing again
+	uint32_t m_NumPlayersforAutoStart;  		// store value of the number of players required for an autostart in string
+	virtual uint32_t GetNumPlayersforAutoStart( )				{ return m_NumPlayersforAutoStart; }
+	uint32_t m_StartGameWhenAtLeastXPlayers;
+	uint32_t m_RefreshDuration;
+	uint32_t m_MoreFPsLobby;
+	uint32_t m_BnetNonAdminCommands;
 	bool m_UDPConsole;						// config value: console output redirected to UDP
 	bool m_Verbose;							// config value: show all info or just some
 	bool m_RelayChatCommands;				// config value: show/hide issued commands
-	bool m_BlueCanHCL;
+	bool m_BlueCanHCL;	
 	bool m_BlueIsOwner;
+	bool m_CustomName;
+	bool m_AppleIcon;
+	bool m_FakePlayersLobby;
+	bool m_CityPatch;
+	bool m_ObsPlayerImmunity;
+	bool m_DenyPatchEnable;
+	bool m_PrefixName;
+	bool m_SquirrelTxt;
+	bool m_FixedSlots;
+	bool m_ReplaysByName;
+	bool m_NoDelMap;
+	bool m_NoDLMap;
+	bool m_NoMapDLfromEpicwar;
+	bool m_OnlyMapDLfromHive;
+	bool m_OtherPort;
+	string m_InvalidTriggers;
+	string m_InvalidReplayChars;
+	string m_RehostChar;
+	string m_OwnerNameAlias;
+	bool m_QueueGameRefresh;
+	bool m_VietTxt;
+	bool m_EnableUnhost;
+	bool m_BlacklistSlowDLder;
+	bool m_RejectColoredName;
+	bool m_ObsSpecificMaps;
+	bool m_GarenaOnly;
+	bool m_BanListLoaded;
 	bool m_ReplaceBanWithWarn;
 	bool m_forceautohclindota;
 	bool m_PlaceAdminsHigherOnlyInDota;
@@ -223,7 +298,7 @@ public:
 	bool m_CalculatingScores;
 	string DBType;
 	bool m_UpdateDotaEloAfterGame;
-	bool m_UpdateDotaScoreAfterGame;
+	bool m_UpdateDotaScoreAfterGame;	
 	string m_LastGameName;
 	string m_ExternalIP;					// our external IP
 	uint32_t m_ExternalIPL;					// our external IP long format
@@ -237,7 +312,10 @@ public:
 	vector<string> m_CachedSpoofedNames;
 	vector<string> m_Providers;				//
 	vector<string> m_Welcome;				// our welcome message
-	vector<string> m_ChannelWelcome;				// our welcome message
+	vector<string> m_ChannelWelcome;		// our welcome message
+	vector<string> m_FPNames;				// our fake player names
+	vector<string> m_FPNamesLast;			// our last fake player names
+	vector<string> m_LanRoomName;			// our lan room name
 	vector<string> m_Mars;					// our mars messages
 	vector<string> m_MarsLast;				// our last mars messages
 	uint32_t m_ChannelJoinTime;				// when we enter a channel
@@ -261,6 +339,7 @@ public:
 	uint32_t m_InformAboutWarnsPrintout; // config value: how many secs should ghost wait to printout the warn count to each player.
 
 	bool m_LanAdmins;						// config value: LAN people who join the game are considered admins
+	bool m_AdminsOnLan;						// config value: admin players who join through LAN can command
 	bool m_LanRootAdmins;					// config value: LAN people who join the game are considered rootadmins
 	bool m_LocalAdmins;						// config value: Local(localhost or GArena) people who join the game are considered admins
 	bool m_KickUnknownFromChannel;			// config value: kick unknown people from channel
@@ -284,6 +363,7 @@ public:
 	uint32_t m_gameoverbasefallen;			// config value: initiate game over timer when x seconds have passed since world tree/frozen throne has fallen
 	uint32_t m_gameoverminpercent;			// config value: initiate game over timer when percent of people remaining is less than.
 	uint32_t m_gameoverminplayers;			// config value: initiate game over timer when there are less than this number of players.
+	bool m_gameoveroneplayer;				// config value: initiate game over timer when only 1 player in game.
 	uint32_t m_gameovermaxteamdifference;	// config value: initiate game over timer if team unbalance is greater than this.
 	string m_CustomVersionText;				// config value: custom text to add to the version
 	uint32_t m_totaldownloadspeed;			// config value: total download speed allowed per all clients
@@ -332,6 +412,7 @@ public:
 	uint32_t m_ShowDownloadsInfoTime;
 	vector<string> m_Commands;
 	string m_RootAdmins;
+	string m_AdminsWithUnhost;
 	string m_FakePings;
 	string m_UDPPassword;
 	bool m_onlyownerscanswapadmins;
@@ -351,6 +432,10 @@ public:
 	unsigned char newGameGameState;
 	string newGameName;
 	bool newGameGArena;
+	bool m_LogReduction;
+	uint32_t m_LobbyDLLeaverBanTime;
+	uint32_t m_GarenaLevelLimit;
+	uint32_t m_DLRateLimit;
 	uint32_t m_LobbyTimeLimit;
 	uint32_t m_LobbyTimeLimitMax;
 //	bool m_dbopen;
@@ -368,20 +453,27 @@ public:
 	string Commands(unsigned int idx);
 	bool CommandAllowedToShow( string c);
 	void ReadProviders();
-	void ReadWelcome();
+	void ReadWelcome();	
 	void ReadChannelWelcome();
 	void ReadMars();
 	string GetMars();
+	void ReadFP();	
+	string GetFPName();
+	string GetRehostChar();
+	void ReadRoomData();
+	string GetRoomName(string RoomID);
 	void SetTimerResolution();
 	void EndTimer();
 	void AdminGameMessage(string name, string message);
 	void UDPCommands(string Message);
 	bool ShouldFakePing(string name);
 	bool IsRootAdmin(string name);
+	bool IsAdminWithUnhost(string name);
 	void AddRootAdmin(string name);
 	void DelRootAdmin(string name);
 	void ReloadConfig();
 	uint32_t CMDAccessAddOwner (uint32_t acc);
+	uint32_t GetLastMapCFG ( string gamename );
 	uint32_t CMDAccessAllOwner ();
 	uint32_t CMDAccessAdd( uint32_t access, uint32_t acc);
 	uint32_t CMDAccessDel( uint32_t access, uint32_t acc);
@@ -396,6 +488,7 @@ public:
 	string CensorRemoveDots( string msg);
 	string IncGameNr( string name);
 	uint32_t ScoresCount( );
+	uint32_t GetSlotsOpen( );
 	void CalculateScoresCount();
 
 	// processing functions
@@ -418,20 +511,32 @@ public:
 
 	// other functions
 	virtual CMyCallableDownloadFile *ThreadedDownloadFile( string url, string path );
-
+	void ClearAutoHostMap( );
 	void ReloadConfigs( );
 	void SetConfigs( CConfig *CFG );
 	void ExtractScripts( );
 	void LoadIPToCountryData( );
 	void LoadIPToCountryDataOpt( );
 	void CreateGame( CMap *map, unsigned char gameState, bool saveGame, string gameName, string ownerName, string creatorName, string creatorServer, bool whisper );
+	CTCPServer *m_GameBroadcastersListener; // listening socket for game broadcasters
+	vector<CTCPSocket *> m_GameBroadcasters;// vector of sockets that broadcast the games
+	void DenyIP( string ip, uint32_t duration, string reason );
+	bool CheckDeny( string ip );
+	bool FlameCheck( string message );
+//	bool IsLocal( string ip );
 	// UDPCommandSocket patch
 	CUDPServer *m_UDPCommandSocket;		// a UDP socket for receiving commands
 	string m_UDPCommandSpoofTarget;     // the realm to send udp received commands to
 		
 	// Metal_Koola's attempts
-	bool m_dropifdesync;				// config value: Drop desynced players
+	bool m_dropifdesync;				// config value: Drop desynced players	
 	int m_CookieOffset;					// System used to remove need for bnet_bnlswardencookie. May need further optimization.
+};
+
+struct DenyInfo {
+	uint32_t Time;
+	uint32_t Duration;
+	uint32_t Count;
 };
 
 #endif

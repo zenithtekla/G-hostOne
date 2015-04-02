@@ -246,8 +246,8 @@
 		</Configuration>
 		<Configuration
 			Name="Release MySQL|Win32"
-			OutputDirectory="$(SolutionDir)"
-			IntermediateDirectory="$(ConfigurationName)"
+			OutputDirectory="..\"
+			IntermediateDirectory="..\Obj"
 			ConfigurationType="1"
 			CharacterSet="1"
 			WholeProgramOptimization="1"
@@ -275,7 +275,7 @@
 				FavorSizeOrSpeed="0"
 				OmitFramePointers="false"
 				EnableFiberSafeOptimizations="false"
-				AdditionalIncludeDirectories="..\bncsutil\src;..\StormLib;..\zlib\include;..\mysql\include"
+				AdditionalIncludeDirectories="..\bncsutil\src;..\StormLib;..\zlib\include;..\mysql\include;C:\libboost138"
 				PreprocessorDefinitions="WIN32;NDEBUG;_CONSOLE;GHOST_MYSQL;_CRT_SECURE_NO_WARNINGS"
 				StringPooling="true"
 				MinimalRebuild="true"
@@ -283,7 +283,9 @@
 				StructMemberAlignment="4"
 				EnableFunctionLevelLinking="false"
 				UsePrecompiledHeader="0"
+				PrecompiledHeaderFile=""
 				WarningLevel="3"
+				Detect64BitPortabilityProblems="false"
 				DebugInformationFormat="3"
 			/>
 			<Tool
@@ -297,9 +299,9 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="ws2_32.lib winmm.lib zdll.lib StormLibRAS.lib libmysql.lib"
+				AdditionalDependencies="ws2_32.lib winmm.lib zdll.lib StormLibRAS.lib libmysql.lib shell32.lib"
 				LinkIncremental="0"
-				AdditionalLibraryDirectories="..\zlib\lib;..\mysql\lib\opt;..\boost\lib"
+				AdditionalLibraryDirectories="..\zlib\lib;..\mysql\lib\opt;..\boost\lib;C:\libboost138"
 				IgnoreAllDefaultLibraries="false"
 				GenerateDebugInformation="true"
 				SubSystem="1"
@@ -401,6 +403,10 @@
 			</File>
 			<File
 				RelativePath=".\gameslot.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\gcbiprotocol.cpp"
 				>
 			</File>
 			<File
@@ -535,6 +541,10 @@
 			</File>
 			<File
 				RelativePath=".\gameslot.h"
+				>
+			</File>
+			<File
+				RelativePath=".\gcbiprotocol.h"
 				>
 			</File>
 			<File
